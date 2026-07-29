@@ -1,20 +1,43 @@
+# Python / backend
 .venv/
 __pycache__/
 *.pyc
 *.pyo
-.DS_Store
-*.egg-info/
-dist/
-build/
+.egg-info/
 validation_report.txt
 .pytest_cache/
 
 # secrets — never commit; see .env.example
 .env
+*.local
 
 # SQLite WAL side-files — regenerated on connect, not part of the artifact
 canonical.db-shm
 canonical.db-wal
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+build/
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
 # Claude Code configuration
 .claude/

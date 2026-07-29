@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from pipeline.image_dedupe import dedupe_image_urls, flush_cache
 from pipeline.match_rooms import extract_attrs, extract_occupancy, match_rooms_for_hotel
 
 DB_PATH = Path(__file__).parent.parent / "canonical.db"
@@ -337,7 +338,7 @@ def build_canonical(
                     "lon":              _safe_avg(ra["lon"], rb["lon"]),
                     "stars":            _safe_avg(ra.get("stars"), rb.get("stars")),
                     "amenities":        _merge_list(ra["amenities"], rb["amenities"]),
-                    "image_urls":       _merge_list(ra["image_urls"], rb["image_urls"]),
+                    "image_urls":       dedupe_image_urls(_merge_list(ra["image_urls"], rb["image_urls"])),
                     "match_status":     "matched",
                     "match_confidence": float(match["confidence"]),
                     "match_method":     str(match.get("method") or "geo_fuzzy"),
@@ -401,6 +402,8 @@ def build_canonical(
         )
         _attach_near_misses(cid, None, b_id)
         _attach_rooms(cid, None, b_id)
+
+    flush_cache()
 
     # ── Write to SQLite ────────────────────────────────────────────────────────
     _write_db(

@@ -15,3 +15,6 @@ validation_report.txt
 # SQLite WAL side-files — regenerated on connect, not part of the artifact
 canonical.db-shm
 canonical.db-wal
+
+# Claude Code configuration
+.claude/

@@ -5,3 +5,6 @@ __pycache__/
 .gitignore
 *.md
 WRITEUP.md
+.env
+.pytest_cache/
+tests/

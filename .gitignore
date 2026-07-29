@@ -7,3 +7,11 @@ __pycache__/
 dist/
 build/
 validation_report.txt
+.pytest_cache/
+
+# secrets — never commit; see .env.example
+.env
+
+# SQLite WAL side-files — regenerated on connect, not part of the artifact
+canonical.db-shm
+canonical.db-wal

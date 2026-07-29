@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Optional — enables the LLM adjudication pass in the pipeline; safe
+      # to leave unset (defaults to empty, pipeline stays at $0). Populated
+      # from a local .env via Compose's built-in variable substitution, or
+      # from your shell — no error if neither is present.
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-300}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}

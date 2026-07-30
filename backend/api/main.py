@@ -81,7 +81,7 @@ _cors_origins = os.environ.get("CORS_ORIGINS", "*")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if _cors_origins == "*" else [o.strip() for o in _cors_origins.split(",") if o.strip()],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024)

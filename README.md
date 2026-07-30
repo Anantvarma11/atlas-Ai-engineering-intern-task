@@ -2,6 +2,11 @@
 
 A canonical hotel layer built from any number of supplier feeds (two Bangalore feeds by default), plus a UI on top.
 
+## Live Demo
+
+- **Frontend UI:** [https://away-ai-engineering-intern-task.vercel.app](https://away-ai-engineering-intern-task.vercel.app)
+- **Backend API:** [https://atlas-ai-engineering-intern-task-away.onrender.com/docs](https://atlas-ai-engineering-intern-task-away.onrender.com/docs)
+
 ```text
 backend/    FastAPI service + matching pipeline — see backend/README.md
 frontend/   React + TypeScript + Tailwind UI    — see frontend/README.md

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { API_BASE } from "../api/client";
 
 interface StagedFile {
@@ -126,6 +127,12 @@ export function AdminPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12">
+      <Link to="/app" className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-ink-500 transition hover:text-ink-900">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M19 12H5m0 0 7 7m-7-7 7-7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Back to search
+      </Link>
       <h1 className="text-3xl font-bold text-ink-900 mb-8">Data Pipeline Admin</h1>
 
       {uploadStatus && (

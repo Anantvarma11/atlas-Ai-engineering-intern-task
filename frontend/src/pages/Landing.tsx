@@ -78,7 +78,7 @@ export function Landing() {
 
       <main className="mx-auto max-w-4xl px-6">
         <div className="py-16 sm:py-24">
-          <p className="font-mono text-sm text-cyan-500">Take-home submission — hotel entity resolution</p>
+          <p className="font-mono text-sm text-cyan-500">Take-home submission by Anant Varma</p>
           <h1 className="mt-4 max-w-2xl font-display text-4xl leading-tight text-zinc-50 sm:text-5xl">
             Two supplier feeds. One clean record per hotel.
           </h1>

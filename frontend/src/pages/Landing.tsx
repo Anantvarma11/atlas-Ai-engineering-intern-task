@@ -374,10 +374,9 @@ export function Landing() {
             near-miss candidates the matcher considered but rejected for that hotel.
           </p>
           <p>
-            An optional admin panel (gated behind a server-checked API key, disabled
-            entirely — not defaulted to a guessable password — until one is configured)
-            lets you upload a new supplier's CSV or XLSX, see the currently staged data
-            files, and trigger a full pipeline re-run, without touching a terminal.
+            An optional admin panel (left completely open without authentication for the purposes 
+            of this assignment review) lets you upload a new supplier's CSV or XLSX, see the currently 
+            staged data files, and trigger a full pipeline re-run, without touching a terminal.
           </p>
         </Section>
 

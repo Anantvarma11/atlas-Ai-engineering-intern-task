@@ -69,10 +69,8 @@ at `GET /stats`. See `WRITEUP.md` for the cost accounting.
 
 ### Optional: admin panel (add a supplier, re-run the pipeline from the UI)
 
-Set `ADMIN_API_KEY` in `.env` to enable `/admin/*` (upload a supplier CSV/XLSX,
-delete a staged file, trigger a pipeline re-run) and the frontend's `/admin`
-page. Unset by default — the routes return `503` until a key is configured,
-so there's no built-in password to guess.
+The `/admin/*` routes allow uploading a supplier CSV/XLSX, deleting a staged file,
+and triggering a pipeline re-run. They are enabled by default for this assignment.
 
 ---
 
@@ -318,7 +316,7 @@ into.
 ├── Dockerfile
 ├── docker-compose.yml
 ├── start.sh
-├── .env.example              # copy to .env to enable LLM adjudication / admin panel / tune config
+├── .env.example              # copy to .env to enable LLM adjudication / tune config
 └── WRITEUP.md
 ```
 
@@ -327,7 +325,6 @@ into.
 | Env var | Default | Purpose |
 |---|---|---|
 | `CEREBRAS_API_KEY` | unset | Enables the LLM adjudication pass in the pipeline (see above). Pipeline runs at $0 without it. |
-| `ADMIN_API_KEY` | unset | Enables `/admin/*` and the frontend admin panel. Routes return `503` until set. |
 | `CANONICAL_DB_PATH` | `./canonical.db` | Point the API at a DB built/mounted elsewhere. |
 | `CORS_ORIGINS` | `*` | Comma-separated allow-list for a real deployment; `*` is fine for this read-only API. |
 | `RATE_LIMIT_PER_MINUTE` | `300` | Per-IP sliding-window cap (in-memory, single-process); `0` disables it. |
@@ -349,9 +346,7 @@ them directly — either works with `docker compose up` or a local run.
   empty file.
 - **Basic per-IP rate limiting** is a single-process safeguard, not a
   substitute for an edge limiter in a real multi-instance deployment.
-- **Admin routes are opt-in and unauthenticated by default**: with
-  `ADMIN_API_KEY` unset they simply don't work (`503`), rather than falling
-  back to a default credential.
+
 
 ## Rebuild the canonical layer
 

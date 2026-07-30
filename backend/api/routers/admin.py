@@ -6,33 +6,18 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.security import APIKeyHeader
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
-_api_key_header = APIKeyHeader(name="X-Admin-Key", auto_error=False)
-
 # Global variable to track pipeline status
 _pipeline_task: asyncio.Task | None = None
 
 
-def verify_api_key(api_key: str | None = Depends(_api_key_header)) -> str:
-    """
-    Require ADMIN_API_KEY to be set in the environment and matched via the
-    X-Admin-Key header. There is no built-in default — an unconfigured
-    deployment disables the admin routes rather than falling back to a
-    guessable key.
-    """
-    expected = os.environ.get("ADMIN_API_KEY", "")
-    if not expected:
-        raise HTTPException(status_code=503, detail="Admin panel is not configured (ADMIN_API_KEY unset)")
-    if not api_key or not secrets.compare_digest(api_key, expected):
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return api_key
+
 
 
 async def _run_pipeline_background():
@@ -58,8 +43,8 @@ async def _run_pipeline_background():
 
 
 @router.get("/verify")
-async def verify(api_key: str = Depends(verify_api_key)):
-    """Check whether the caller's X-Admin-Key header is valid, for login forms."""
+async def verify():
+    """Check whether the admin panel is accessible."""
     return {"status": "ok"}
 
 
@@ -80,7 +65,7 @@ async def list_files():
 
 
 @router.delete("/files/{filename}")
-async def delete_file(filename: str, api_key: str = Depends(verify_api_key)):
+async def delete_file(filename: str):
     """Delete a staged data file."""
     if not filename.endswith(".csv") or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -97,7 +82,6 @@ async def upload_supplier(
     file: UploadFile = File(...),
     supplier_name: str = Form(..., description="E.g., 'expedia' or 'booking'"),
     data_type: str = Form(..., description="'hotels' or 'rooms'"),
-    api_key: str = Depends(verify_api_key),
 ):
     """Uploads a supplier CSV/XLSX and saves it as a normalized CSV."""
     if not (file.filename.endswith(".csv") or file.filename.endswith(".xlsx")):
@@ -131,7 +115,7 @@ async def upload_supplier(
 
 
 @router.post("/trigger-pipeline")
-async def trigger_pipeline(api_key: str = Depends(verify_api_key)):
+async def trigger_pipeline():
     """Triggers the data cleaning and matching pipeline asynchronously."""
     global _pipeline_task
 

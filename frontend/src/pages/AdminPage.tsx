@@ -7,8 +7,6 @@ interface StagedFile {
 }
 
 export function AdminPage() {
-  const [apiKey, setApiKey] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [isPipelineRunning, setIsPipelineRunning] = useState(false);
   const [pipelineMessage, setPipelineMessage] = useState("");
@@ -18,13 +16,11 @@ export function AdminPage() {
   const [uploadType, setUploadType] = useState<"hotels" | "rooms">("hotels");
 
   useEffect(() => {
-    if (isAuthenticated) {
-      checkPipelineStatus();
-      fetchFiles();
-      const interval = setInterval(checkPipelineStatus, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [isAuthenticated]);
+    checkPipelineStatus();
+    fetchFiles();
+    const interval = setInterval(checkPipelineStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchFiles = async () => {
     try {
@@ -47,30 +43,13 @@ export function AdminPage() {
     }
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${API_BASE}/admin/verify`, {
-        headers: { "X-Admin-Key": apiKey },
-      });
-      if (res.ok) {
-        setIsAuthenticated(true);
-        setUploadStatus({ type: 'success', message: 'Logged in successfully.' });
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setUploadStatus({ type: 'error', message: data.detail || 'Invalid API key' });
-      }
-    } catch (err) {
-      setUploadStatus({ type: 'error', message: 'Network error during login' });
-    }
-  };
+
 
   const handleDeleteFile = async (filename: string) => {
     if (!confirm(`Are you sure you want to delete ${filename}?`)) return;
     try {
       const res = await fetch(`${API_BASE}/admin/files/${filename}`, {
         method: "DELETE",
-        headers: { "X-Admin-Key": apiKey },
       });
       if (res.ok) {
         setUploadStatus({ type: 'success', message: `Deleted ${filename}` });
@@ -103,7 +82,6 @@ export function AdminPage() {
     try {
       const res = await fetch(`${API_BASE}/admin/upload-supplier`, {
         method: "POST",
-        headers: { "X-Admin-Key": apiKey },
         body: formData,
       });
       
@@ -130,7 +108,6 @@ export function AdminPage() {
     try {
       const res = await fetch(`${API_BASE}/admin/trigger-pipeline`, {
         method: "POST",
-        headers: { "X-Admin-Key": apiKey },
       });
       const data = await res.json();
       if (res.ok) {
@@ -146,30 +123,6 @@ export function AdminPage() {
     }
   };
 
-  if (!isAuthenticated) {
-    return (
-      <div className="mx-auto max-w-md px-4 py-24 text-center">
-        <h1 className="text-3xl font-bold mb-6">Admin Login</h1>
-        <form onSubmit={handleLogin} className="bg-white p-6 rounded shadow-sm border border-ink-200">
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            className="w-full border p-2 rounded mb-4"
-            placeholder="Enter API Key"
-          />
-          <button type="submit" className="w-full bg-blue-600 text-white p-2 rounded font-medium hover:bg-blue-700 transition">
-            Login
-          </button>
-        </form>
-        {uploadStatus && (
-          <div className={`mt-4 p-3 rounded ${uploadStatus.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-            {uploadStatus.message}
-          </div>
-        )}
-      </div>
-    );
-  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12">

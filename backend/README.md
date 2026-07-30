@@ -1,6 +1,9 @@
 # Away Hotels API
 
-A canonical hotel layer built from two Bangalore supplier feeds. Each physical hotel appears once, with merged content, source provenance, matched rooms with structured attributes, and honest match confidence.
+A canonical hotel layer built from any number of supplier feeds (two Bangalore
+feeds, "A" and "B", by default). Each physical hotel appears once, with merged
+content, full source provenance, matched rooms with structured attributes, and
+honest match confidence.
 
 ---
 
@@ -12,7 +15,8 @@ A canonical hotel layer built from two Bangalore supplier feeds. Each physical h
 docker compose up
 ```
 
-The image is ~170 MB. On first build it installs Python packages; `canonical.db` is already committed so the pipeline is skipped and the API starts in under 10 seconds.
+The image is ~170 MB. `canonical.db` is already committed, so the pipeline is
+skipped and the API starts in under 10 seconds.
 
 ```
 [start] canonical.db found — skipping pipeline.
@@ -37,17 +41,20 @@ python -m pipeline.run
 uvicorn api.main:app --host 0.0.0.0 --port 8000
 ```
 
-The pipeline takes ~8–10 s on a laptop and is idempotent (`--force` re-runs it).
+The committed `canonical.db` means this is normally a no-op. A full `--force`
+rebuild over the ~7,200 hotels / ~21,200 rooms in `data/` takes roughly
+**9 minutes** on a laptop — see `WRITEUP.md` for why (semantic embedding
+search traded for wall-clock time) and what a faster path would look like.
 
 ### Optional: LLM adjudication of hard cases
 
 The pipeline runs at **$0 by default**. If you want to sharpen the handful of
 genuinely ambiguous hotel-matching cases, copy `.env.example` to `.env` and
-set `DEEPSEEK_API_KEY`:
+set `CEREBRAS_API_KEY`:
 
 ```bash
 cp .env.example .env
-# edit .env and set DEEPSEEK_API_KEY=sk-...
+# edit .env and set CEREBRAS_API_KEY=csk-...
 python -m pipeline.run --force
 ```
 
@@ -55,10 +62,17 @@ This adjudicates a **bounded, targeted** set of near-miss pairs (capped at
 200, see `pipeline/llm_adjudicate.py`) that are geographically plausible but
 too ambiguous on name evidence for the heuristic to decide — never the
 obvious matches or non-matches. Every request/response is cached in
-`pipeline/cache/llm_adjudications.json` (commit it), so a re-run — or anyone
+`pipeline/cache/llm_adjudications.json` (committed), so a re-run — or anyone
 grading this without a key — reproduces the exact same result at $0. Actual
 token spend accumulates in `pipeline/cache/llm_spend.json` and is surfaced
 at `GET /stats`. See `WRITEUP.md` for the cost accounting.
+
+### Optional: admin panel (add a supplier, re-run the pipeline from the UI)
+
+Set `ADMIN_API_KEY` in `.env` to enable `/admin/*` (upload a supplier CSV/XLSX,
+delete a staged file, trigger a pipeline re-run) and the frontend's `/admin`
+page. Unset by default — the routes return `503` until a key is configured,
+so there's no built-in password to guess.
 
 ---
 
@@ -79,18 +93,23 @@ curl http://localhost:8000/
 ---
 
 ### `GET /stats`
-Pipeline summary: hotel and room counts by match status.
+Pipeline summary: hotel and room counts by match status, from the last real run.
 
 ```bash
 curl http://localhost:8000/stats
 ```
 ```json
 {
-  "hotels":  { "matched": 2534, "a_only": 875, "b_only": 1228 },
-  "hotels_by_match_method": { "geo_fuzzy": 2467, "rescue": 67, "singleton": 2103 },
-  "rooms":   { "matched": 1854, "a_only": 2047, "b_only": 15440 },
-  "near_misses": 35515,
-  "llm_spend": null
+  "hotels": { "matched": 2540, "singleton": 2091 },
+  "hotels_by_match_method": { "geo_fuzzy": 2459, "rescue": 66, "llm": 15, "singleton": 2091 },
+  "rooms": { "matched": 1711, "singleton": 17773 },
+  "near_misses": 26536,
+  "llm_spend": {
+    "lifetime_pairs_adjudicated": 97,
+    "lifetime_prompt_tokens": 11413,
+    "lifetime_completion_tokens": 17685,
+    "lifetime_cost_usd": 0.0
+  }
 }
 ```
 
@@ -110,7 +129,7 @@ Search or list canonical hotels.
 | `search` | string | `""` | FTS5 full-text search over name + address (prefix-aware) |
 | `limit` | int | `20` | Max results (1–200) |
 | `offset` | int | `0` | Pagination offset |
-| `match_status` | string | — | Filter: `matched` \| `a_only` \| `b_only` |
+| `match_status` | string | — | Filter: `matched` \| `singleton` |
 
 **Example requests**
 
@@ -132,10 +151,10 @@ curl "http://localhost:8000/hotels?limit=50"
 
 ```json
 {
-  "total": 3,
+  "total": 2540,
   "limit": 5,
   "offset": 0,
-  "has_more": false,
+  "has_more": true,
   "hotels": [
     {
       "id": "CAN-01234",
@@ -150,8 +169,7 @@ curl "http://localhost:8000/hotels?limit=50"
       "match_confidence": 0.93,
       "match_method": "geo_fuzzy",
       "match_note": null,
-      "supplier_a_id": "A-XXXXX",
-      "supplier_b_id": "B-XXXXX"
+      "source_ids": { "supplier_a": "A-XXXXX", "supplier_b": "B-XXXXX" }
     }
   ]
 }
@@ -187,8 +205,7 @@ curl -s "http://localhost:8000/hotels/CAN-00001" | jq .
   "match_confidence": 1.0,
   "match_method": "geo_fuzzy",
   "match_note": null,
-  "supplier_a_id": "A-07887",
-  "supplier_b_id": "B-66857",
+  "source_ids": { "supplier_a": "A-07887", "supplier_b": "B-66857" },
 
   "sources": {
     "supplier_a": {
@@ -220,23 +237,24 @@ curl -s "http://localhost:8000/hotels/CAN-00001" | jq .
       "amenities": ["Double Bed", "225 sq.ft", "Wardrobe/closet", "TV"],
       "match_status": "matched",
       "match_confidence": 0.82,
-      "supplier_a_room": { "id": "RA-32340", "name": "Deluxe Room - Non Smoking · City view", "amenities": ["..."] },
-      "supplier_b_room": { "id": "RB-XXXXX", "name": "Deluxe, Double",                        "amenities": [] }
+      "sources": {
+        "supplier_a": { "id": "RA-32340", "name": "Deluxe Room - Non Smoking · City view", "amenities": [] },
+        "supplier_b": { "id": "RB-XXXXX", "name": "Deluxe, Double", "amenities": [] }
+      }
     },
     {
       "id": "CAN-RM-000043",
       "name": "Run of House",
       "bed_type": null,
-      "match_status": "b_only",
+      "match_status": "singleton",
       "match_confidence": 1.0,
-      "supplier_a_room": null,
-      "supplier_b_room": { "id": "RB-YYYYY", "name": "Run of House", "amenities": [] }
+      "sources": { "supplier_b": { "id": "RB-YYYYY", "name": "Run of House", "amenities": [] } }
     }
   ],
 
   "near_misses": [
     {
-      "supplier": "b",
+      "supplier": "supplier_b",
       "supplier_id": "B-ZZZZZ",
       "name": "Crystal Palace Inn",
       "address": "...",
@@ -248,26 +266,25 @@ curl -s "http://localhost:8000/hotels/CAN-00001" | jq .
 }
 ```
 
-Near-misses are symmetric: a `matched` or `a_only` hotel shows near-miss
-**B** candidates; a `b_only` hotel shows near-miss **A** candidates (the
-`supplier` field tells you which). This used to only be populated for
-`matched` hotels — an `a_only`/`b_only` hotel that almost matched is exactly
-the case a reviewer most wants visibility into, so it's fixed to cover both.
+Near-misses are attached to every hotel that had a plausible-but-rejected
+candidate, not only to hotels that ended up matched — a `singleton` hotel
+that almost matched is exactly the case a reviewer most wants visibility
+into.
 
 **Field reference**
 
 | Field | Description |
 |-------|-------------|
-| `match_status` | `matched` / `a_only` / `b_only` for both hotels and rooms |
+| `match_status` | `matched` (found in 2+ suppliers) / `singleton` (found in exactly one) |
 | `match_confidence` | 0–1 combined score; 1.0 for singletons (no second source to compare against) |
-| `match_method` | How a hotel match was decided: `geo_fuzzy` (main geo+name pass) / `rescue` (identical-name, relaxed-geo pass) / `llm` (DeepSeek adjudication of a hard case) / `singleton` (a_only or b_only) |
+| `match_method` | How a hotel match was decided: `geo_fuzzy` (main geo+semantic pass) / `rescue` (identical-name, relaxed-geo pass) / `llm` (Cerebras adjudication of a hard case) / `singleton` (found in only one supplier) |
 | `match_note` | LLM's one-line rationale, only set when `match_method` is `llm` |
-| `sources` | Verbatim supplier records — full provenance |
+| `source_ids` / `sources` | `{supplier_name: id}` / `{supplier_name: raw record}` — one entry per supplier the hotel was seen in |
 | `rooms[].bed_type` | `King` / `Queen` / `Twin` / `Double` / `Single` / `Bunk` / `Dormitory` / `Sofa Bed` / `Multiple Beds` or `null` |
 | `rooms[].occupancy` | `Single` / `Double` / `Triple` / `Family` or `null` |
 | `rooms[].meal_plan` | `Room Only` / `Breakfast` / `Half Board` / `Full Board` |
 | `rooms[].view` | `City` / `Pool` / `Garden` / `Sea` / `Mountain` / `Courtyard` or `null` |
-| `near_misses` | Sub-threshold candidates from the other supplier; sorted by confidence descending |
+| `near_misses` | Sub-threshold candidates considered but not matched; sorted by confidence descending |
 
 ---
 
@@ -277,28 +294,31 @@ the case a reviewer most wants visibility into, so it's fixed to cover both.
 .
 ├── pipeline/
 │   ├── load.py             # CSV parsing + cleaning
-│   ├── match_hotels.py     # Geo-blocking + fuzzy entity resolution
-│   ├── match_rooms.py      # Room matching + attribute extraction
-│   ├── llm_adjudicate.py   # Optional DeepSeek adjudication of hard near-misses
+│   ├── match_hotels.py     # Geo-filtered semantic search + weighted one-to-one matching
+│   ├── match_rooms.py      # Cross-supplier room matching + attribute extraction
+│   ├── llm_adjudicate.py   # Optional Cerebras adjudication of hard near-misses
 │   ├── merge.py            # Canonical record builder → SQLite + JSON
-│   ├── run.py              # Pipeline entry-point
-│   └── cache/              # LLM request/response cache + spend log (committed)
+│   ├── run.py               # Pipeline entry-point
+│   └── cache/               # LLM request/response cache + spend log (committed)
 ├── api/
-│   ├── main.py          # FastAPI app + middleware (logging, rate limit, errors)
-│   ├── models.py        # Pydantic response schemas
-│   └── db.py            # SQLite query helpers
-├── tests/                 # pytest: matching, merge/provenance, LLM adjudication, API contract
-├── supplier_a.csv        # Supplier A hotel feed (~3 400 rows)
-├── supplier_b.csv        # Supplier B hotel feed (~3 800 rows)
-├── rooms_a.csv           # Supplier A room feed (~3 900 rows)
-├── rooms_b.csv           # Supplier B room feed (~17 300 rows)
-├── canonical.db          # ✅ Committed SQLite artifact
-├── canonical_hotels.json # ✅ Committed JSON artifact (hotels + rooms + near-misses)
+│   ├── main.py              # FastAPI app + middleware (logging, rate limit, errors)
+│   ├── models.py            # Pydantic response schemas
+│   ├── db.py                # SQLite query helpers
+│   └── routers/
+│       └── admin.py         # Optional admin routes (upload supplier, trigger pipeline)
+├── tests/                   # pytest: matching, merge/provenance, LLM adjudication, API contract
+├── data/                     # Raw supplier feeds, named {supplier}_hotels.csv / {supplier}_rooms.csv
+│   ├── supplier_a_hotels.csv
+│   ├── supplier_a_rooms.csv
+│   ├── supplier_b_hotels.csv
+│   └── supplier_b_rooms.csv
+├── canonical.db              # committed SQLite artifact (the pipeline's output)
+├── canonical_hotels.json     # committed JSON artifact (same data, nested)
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
 ├── start.sh
-├── .env.example          # Copy to .env to enable optional LLM adjudication / tune config
+├── .env.example              # copy to .env to enable LLM adjudication / admin panel / tune config
 └── WRITEUP.md
 ```
 
@@ -306,9 +326,10 @@ the case a reviewer most wants visibility into, so it's fixed to cover both.
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | unset | Enables the LLM adjudication pass in the pipeline (see above). Pipeline runs at $0 without it. |
+| `CEREBRAS_API_KEY` | unset | Enables the LLM adjudication pass in the pipeline (see above). Pipeline runs at $0 without it. |
+| `ADMIN_API_KEY` | unset | Enables `/admin/*` and the frontend admin panel. Routes return `503` until set. |
 | `CANONICAL_DB_PATH` | `./canonical.db` | Point the API at a DB built/mounted elsewhere. |
-| `CORS_ORIGINS` | `*` | Comma-separated allow-list for a real deployment; `*` is fine for this read-only, no-auth API. |
+| `CORS_ORIGINS` | `*` | Comma-separated allow-list for a real deployment; `*` is fine for this read-only API. |
 | `RATE_LIMIT_PER_MINUTE` | `300` | Per-IP sliding-window cap (in-memory, single-process); `0` disables it. |
 | `LOG_LEVEL` | `INFO` | Python logging level for the API. |
 
@@ -328,6 +349,9 @@ them directly — either works with `docker compose up` or a local run.
   empty file.
 - **Basic per-IP rate limiting** is a single-process safeguard, not a
   substitute for an edge limiter in a real multi-instance deployment.
+- **Admin routes are opt-in and unauthenticated by default**: with
+  `ADMIN_API_KEY` unset they simply don't work (`503`), rather than falling
+  back to a default credential.
 
 ## Rebuild the canonical layer
 
@@ -335,3 +359,7 @@ them directly — either works with `docker compose up` or a local run.
 # Force a fresh run (overwrites canonical.db and canonical_hotels.json)
 python -m pipeline.run --force
 ```
+
+Add a new supplier by dropping `{name}_hotels.csv` and `{name}_rooms.csv`
+(same columns as the existing files) into `data/` before re-running — the
+pipeline discovers suppliers by filename, it isn't hardcoded to two.

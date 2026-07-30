@@ -4,12 +4,28 @@ import { MatchBadge } from "./MatchBadge";
 import { ConfidenceRing } from "./ConfidenceRing";
 import { firstImage, formatStars } from "../lib/format";
 
+const COLORS = [
+  "bg-blue-50 text-blue-600",
+  "bg-violet-50 text-violet-600",
+  "bg-emerald-50 text-emerald-600",
+  "bg-amber-50 text-amber-600",
+  "bg-rose-50 text-rose-600",
+];
+
+// Suppliers are commonly named "supplier_a" / "supplier_b" — using the
+// segment after the last underscore avoids every badge collapsing to "S".
+function supplierInitial(supplier: string): string {
+  const last = supplier.split("_").pop() || supplier;
+  return last[0]?.toUpperCase() ?? "?";
+}
+
 export function HotelCard({ hotel, index = 0 }: { hotel: HotelSummary; index?: number }) {
   const image = firstImage(hotel.image_urls);
+  const sources = Object.keys(hotel.source_ids || {});
 
   return (
     <Link
-      to={`/hotels/${hotel.id}`}
+      to={`/app/hotels/${hotel.id}`}
       className="group animate-fade-up flex flex-col overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)] ring-1 ring-ink-100 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]"
       style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
     >
@@ -66,8 +82,11 @@ export function HotelCard({ hotel, index = 0 }: { hotel: HotelSummary; index?: n
         <div className="mt-auto flex items-center justify-between pt-3 text-[11px] text-ink-400">
           <span className="font-mono">{hotel.id}</span>
           <span className="flex items-center gap-1">
-            {hotel.supplier_a_id && <span className="rounded bg-blue-50 px-1.5 py-0.5 font-medium text-blue-600">A</span>}
-            {hotel.supplier_b_id && <span className="rounded bg-violet-50 px-1.5 py-0.5 font-medium text-violet-600">B</span>}
+            {sources.map((supp, i) => (
+              <span key={supp} title={supp} className={`rounded px-1.5 py-0.5 font-medium ${COLORS[i % COLORS.length]}`}>
+                {supplierInitial(supp)}
+              </span>
+            ))}
           </span>
         </div>
       </div>

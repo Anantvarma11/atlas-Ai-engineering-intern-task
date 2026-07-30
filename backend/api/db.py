@@ -55,11 +55,12 @@ def _parse_hotel_row(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["amenities"]  = json.loads(d.get("amenities") or "[]")
     d["image_urls"] = json.loads(d.get("image_urls") or "[]")
+    d["source_ids"] = json.loads(d.get("source_ids") or "{}")
     return d
 
 
 def _parse_raw_hotel_row(row: sqlite3.Row | None) -> dict | None:
-    """Convert a raw_hotels_a/b row to a plain dict."""
+    """Convert a raw_hotels row to a plain dict."""
     if row is None:
         return None
     d = dict(row)
@@ -72,6 +73,8 @@ def _parse_room_row(row: sqlite3.Row) -> dict:
     """Convert a canonical_rooms row to a plain dict."""
     d = dict(row)
     d["amenities"] = json.loads(d.get("amenities") or "[]")
+    d["source_room_ids"] = json.loads(d.get("source_room_ids") or "{}")
+    d["source_names"] = json.loads(d.get("source_names") or "{}")
     # SQLite stores NULL / 0 / 1 for is_smoking; convert to bool | None
     sm = d.get("is_smoking")
     d["is_smoking"] = None if sm is None else bool(sm)
@@ -203,9 +206,8 @@ def get_hotel_by_id(con: sqlite3.Connection, hotel_id: str) -> dict | None:
 
 
 def get_raw_hotel(con: sqlite3.Connection, supplier: str, supplier_id: str) -> dict | None:
-    """Fetch a verbatim supplier hotel record (supplier = 'a' or 'b')."""
-    table = "raw_hotels_a" if supplier == "a" else "raw_hotels_b"
-    row = con.execute(f"SELECT * FROM {table} WHERE id = ?", (supplier_id,)).fetchone()
+    """Fetch a verbatim supplier hotel record."""
+    row = con.execute("SELECT * FROM raw_hotels WHERE supplier = ? AND id = ?", (supplier, supplier_id,)).fetchone()
     return _parse_raw_hotel_row(row)
 
 
@@ -218,31 +220,14 @@ def get_rooms_for_hotel(con: sqlite3.Connection, hotel_id: str) -> list[dict]:
     if not rows:
         return []
 
-    # Fetch raw room records in bulk for this hotel
-    room_a_ids = [r["room_a_id"] for r in rows if r["room_a_id"]]
-    room_b_ids = [r["room_b_id"] for r in rows if r["room_b_id"]]
-
-    raw_a: dict[str, dict] = {}
-    if room_a_ids:
-        placeholders = ",".join("?" * len(room_a_ids))
-        for rr in con.execute(
-            f"SELECT * FROM raw_rooms_a WHERE room_id IN ({placeholders})", room_a_ids
-        ).fetchall():
-            raw_a[rr["room_id"]] = _parse_raw_room_row(rr)
-
-    raw_b: dict[str, dict] = {}
-    if room_b_ids:
-        placeholders = ",".join("?" * len(room_b_ids))
-        for rr in con.execute(
-            f"SELECT * FROM raw_rooms_b WHERE room_id IN ({placeholders})", room_b_ids
-        ).fetchall():
-            raw_b[rr["room_id"]] = _parse_raw_room_row(rr)
-
     result = []
     for row in rows:
         d = _parse_room_row(row)
-        d["supplier_a_room"] = raw_a.get(d.get("room_a_id")) if d.get("room_a_id") else None
-        d["supplier_b_room"] = raw_b.get(d.get("room_b_id")) if d.get("room_b_id") else None
+        d["sources"] = {}
+        for supp, rid in d["source_room_ids"].items():
+            rr = con.execute("SELECT * FROM raw_rooms WHERE supplier = ? AND room_id = ?", (supp, rid,)).fetchone()
+            if rr:
+                d["sources"][supp] = _parse_raw_room_row(rr)
         result.append(d)
 
     return result
@@ -251,9 +236,7 @@ def get_rooms_for_hotel(con: sqlite3.Connection, hotel_id: str) -> list[dict]:
 def get_near_misses_for_hotel(con: sqlite3.Connection, hotel_id: str) -> list[dict]:
     """
     Fetch sub-threshold candidates for a canonical hotel, enriched with the
-    candidate's name and address. Candidates can come from either supplier:
-    an A-based hotel (matched or a_only) has near-miss B candidates, and a
-    b_only hotel has near-miss A candidates.
+    candidate's name and address. Candidates can come from any supplier.
     """
     rows = con.execute(
         """
@@ -268,33 +251,15 @@ def get_near_misses_for_hotel(con: sqlite3.Connection, hotel_id: str) -> list[di
     if not rows:
         return []
 
-    a_ids = [r["candidate_id"] for r in rows if r["candidate_supplier"] == "a"]
-    b_ids = [r["candidate_id"] for r in rows if r["candidate_supplier"] == "b"]
-
-    info_a: dict[str, sqlite3.Row] = {}
-    if a_ids:
-        placeholders = ",".join("?" * len(a_ids))
-        for rr in con.execute(
-            f"SELECT id, name, address FROM raw_hotels_a WHERE id IN ({placeholders})", a_ids
-        ).fetchall():
-            info_a[rr["id"]] = rr
-
-    info_b: dict[str, sqlite3.Row] = {}
-    if b_ids:
-        placeholders = ",".join("?" * len(b_ids))
-        for rr in con.execute(
-            f"SELECT id, name, address FROM raw_hotels_b WHERE id IN ({placeholders})", b_ids
-        ).fetchall():
-            info_b[rr["id"]] = rr
-
     result = []
     for r in rows:
-        lookup = info_a if r["candidate_supplier"] == "a" else info_b
-        info = lookup.get(r["candidate_id"])
+        supp = r["candidate_supplier"]
+        cid = r["candidate_id"]
+        info = con.execute("SELECT id, name, address FROM raw_hotels WHERE supplier = ? AND id = ?", (supp, cid,)).fetchone()
         result.append(
             {
-                "supplier":    r["candidate_supplier"],
-                "supplier_id": r["candidate_id"],
+                "supplier":    supp,
+                "supplier_id": cid,
                 "name":        info["name"] if info else "",
                 "address":     info["address"] if info else "",
                 "confidence":  r["confidence"],

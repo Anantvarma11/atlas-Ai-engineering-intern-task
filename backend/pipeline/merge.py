@@ -4,10 +4,10 @@ Build canonical hotel + room records and persist to SQLite + JSON.
 Schema overview
 ---------------
 canonical_hotels  — one row per real-world hotel
-canonical_rooms   — one row per canonical room (may span both suppliers)
-near_misses       — sub-threshold hotel candidates, keyed by canonical_hotel_id
-raw_hotels_a/b    — verbatim supplier records (provenance)
-raw_rooms_a/b     — verbatim room records
+canonical_rooms   — one row per canonical room
+near_misses       — sub-threshold hotel candidates
+raw_hotels        — verbatim supplier records (provenance)
+raw_rooms         — verbatim room records
 hotels_fts        — FTS5 index over canonical_hotels for text search
 """
 
@@ -28,44 +28,40 @@ JSON_PATH = Path(__file__).parent.parent / "canonical_hotels.json"
 # Small helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _pick_name(name_a: str, name_b: str) -> str:
-    """Return whichever name is longer (usually more descriptive)."""
-    a = (name_a or "").strip()
-    b = (name_b or "").strip()
-    if not a:
-        return b
-    if not b:
-        return a
-    return a if len(a) >= len(b) else b
+def _pick_name(names: list[str]) -> str:
+    """Return whichever name is longest (usually more descriptive)."""
+    valid = [n.strip() for n in names if n and str(n).strip()]
+    if not valid:
+        return ""
+    return max(valid, key=len)
 
 
-def _merge_list(list_a: list, list_b: list) -> list:
-    """Union two lists, deduplicating by lowercase string value."""
+def _merge_lists(lists: list[list]) -> list:
+    """Union multiple lists, deduplicating by lowercase string value."""
     seen: set[str] = set()
     result: list = []
-    for item in list(list_a or []) + list(list_b or []):
-        key = str(item).lower().strip()
-        if key and key not in seen:
-            seen.add(key)
-            result.append(item)
+    for lst in lists:
+        for item in (lst or []):
+            key = str(item).lower().strip()
+            if key and key not in seen:
+                seen.add(key)
+                result.append(item)
     return result
 
 
-def _safe_avg(a, b):
-    """Average two values; handle NaN / None gracefully."""
-    def _ok(v):
+def _safe_avg(vals: list):
+    """Average values; handle NaN / None gracefully."""
+    valid = []
+    for v in vals:
         try:
-            return v is not None and not math.isnan(float(v))
+            if v is not None and not math.isnan(float(v)):
+                valid.append(float(v))
         except (TypeError, ValueError):
-            return False
-
-    if _ok(a) and _ok(b):
-        return round((float(a) + float(b)) / 2, 1)
-    if _ok(a):
-        return round(float(a), 1)
-    if _ok(b):
-        return round(float(b), 1)
-    return None
+            pass
+            
+    if not valid:
+        return None
+    return round(sum(valid) / len(valid), 6)
 
 
 def _safe_float(v):
@@ -84,26 +80,17 @@ _DDL = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
 
-CREATE TABLE IF NOT EXISTS raw_hotels_a (
-    id          TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS raw_hotels (
+    supplier    TEXT,
+    id          TEXT,
     name        TEXT,
     address     TEXT,
     lat         REAL,
     lon         REAL,
     stars       REAL,
     amenities   TEXT,   -- JSON array
-    image_urls  TEXT    -- JSON array
-);
-
-CREATE TABLE IF NOT EXISTS raw_hotels_b (
-    id          TEXT PRIMARY KEY,
-    name        TEXT,
-    address     TEXT,
-    lat         REAL,
-    lon         REAL,
-    stars       REAL,
-    amenities   TEXT,
-    image_urls  TEXT
+    image_urls  TEXT,   -- JSON array
+    PRIMARY KEY (supplier, id)
 );
 
 CREATE TABLE IF NOT EXISTS canonical_hotels (
@@ -115,26 +102,20 @@ CREATE TABLE IF NOT EXISTS canonical_hotels (
     stars           REAL,
     amenities       TEXT,   -- JSON array
     image_urls      TEXT,   -- JSON array
-    match_status    TEXT NOT NULL,   -- 'matched' | 'a_only' | 'b_only'
+    match_status    TEXT NOT NULL,   -- 'matched' | 'singleton'
     match_confidence REAL NOT NULL,
-    match_method    TEXT NOT NULL,   -- 'geo_fuzzy' | 'rescue' | 'llm' | 'singleton'
-    match_note      TEXT,            -- LLM adjudication rationale, when match_method='llm'
-    supplier_a_id   TEXT,
-    supplier_b_id   TEXT
+    match_method    TEXT NOT NULL,   -- 'geo_fuzzy' | 'rescue' | 'singleton'
+    match_note      TEXT,            -- LLM adjudication rationale
+    source_ids      TEXT             -- JSON dictionary of {supplier: id}
 );
 
-CREATE TABLE IF NOT EXISTS raw_rooms_a (
-    room_id     TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS raw_rooms (
+    supplier    TEXT,
+    room_id     TEXT,
     hotel_id    TEXT,
     name        TEXT,
-    amenities   TEXT    -- JSON array
-);
-
-CREATE TABLE IF NOT EXISTS raw_rooms_b (
-    room_id     TEXT PRIMARY KEY,
-    hotel_id    TEXT,
-    name        TEXT,
-    amenities   TEXT
+    amenities   TEXT,    -- JSON array
+    PRIMARY KEY (supplier, room_id)
 );
 
 CREATE TABLE IF NOT EXISTS canonical_rooms (
@@ -147,17 +128,15 @@ CREATE TABLE IF NOT EXISTS canonical_rooms (
     view                 TEXT,
     is_smoking           INTEGER,   -- 0 / 1 / NULL
     amenities            TEXT,      -- JSON array
-    match_status         TEXT NOT NULL,   -- 'matched' | 'a_only' | 'b_only'
+    match_status         TEXT NOT NULL,
     match_confidence     REAL NOT NULL,
-    room_a_id            TEXT,
-    room_b_id            TEXT,
-    name_a               TEXT,
-    name_b               TEXT
+    source_room_ids      TEXT,      -- JSON dictionary of {supplier: room_id}
+    source_names         TEXT       -- JSON dictionary of {supplier: name}
 );
 
 CREATE TABLE IF NOT EXISTS near_misses (
     canonical_hotel_id  TEXT NOT NULL,
-    candidate_supplier  TEXT NOT NULL,   -- 'a' | 'b' — which supplier the candidate belongs to
+    candidate_supplier  TEXT NOT NULL,
     candidate_id        TEXT NOT NULL,
     confidence          REAL,
     geo_score           REAL,
@@ -181,38 +160,28 @@ CREATE INDEX IF NOT EXISTS idx_nm_hotel    ON near_misses(canonical_hotel_id);
 # ──────────────────────────────────────────────────────────────────────────────
 
 def build_canonical(
-    df_a: pd.DataFrame,
-    df_b: pd.DataFrame,
-    matches_df: pd.DataFrame,
+    hotel_dfs: dict[str, pd.DataFrame],
+    room_dfs: dict[str, pd.DataFrame],
+    components: list[dict],
     near_misses_df: pd.DataFrame,
-    rooms_a_df: pd.DataFrame,
-    rooms_b_df: pd.DataFrame,
     db_path: Path = DB_PATH,
     json_path: Path = JSON_PATH,
 ) -> tuple[int, int, int]:
     """
     Build canonical records and write to SQLite + JSON.
-
     Returns (n_hotels, n_rooms, n_near_misses).
     """
     # Index raw data for O(1) lookups
-    hotels_a: dict = {row["id"]: row for _, row in df_a.iterrows()}
-    hotels_b: dict = {row["id"]: row for _, row in df_b.iterrows()}
+    hotels_indexed: dict[str, dict[str, dict]] = {}
+    for supp, df in hotel_dfs.items():
+        hotels_indexed[supp] = {row["id"]: row for _, row in df.iterrows()}
 
-    # Group rooms by hotel_id
-    rooms_a_by_hotel: dict[str, pd.DataFrame] = {}
-    for hid, grp in rooms_a_df.groupby("hotel_id"):
-        rooms_a_by_hotel[hid] = grp.reset_index(drop=True)
-
-    rooms_b_by_hotel: dict[str, pd.DataFrame] = {}
-    for hid, grp in rooms_b_df.groupby("hotel_id"):
-        rooms_b_by_hotel[hid] = grp.reset_index(drop=True)
-
-    matched_a_ids: set[str] = set()
-    matched_b_ids: set[str] = set()
-    if not matches_df.empty:
-        matched_a_ids = set(matches_df["a_id"])
-        matched_b_ids = set(matches_df["b_id"])
+    # Group rooms by supplier and hotel_id
+    rooms_by_hotel: dict[str, dict[str, pd.DataFrame]] = {}
+    for supp, df in room_dfs.items():
+        rooms_by_hotel[supp] = {}
+        for hid, grp in df.groupby("hotel_id"):
+            rooms_by_hotel[supp][hid] = grp.reset_index(drop=True)
 
     canonical_hotels: list[dict] = []
     canonical_rooms:  list[dict] = []
@@ -233,183 +202,128 @@ def build_canonical(
         room_counter += 1
         return rid
 
-    # ── Helper: build one canonical room row ──────────────────────────────────
-    def _make_room(
-        cid: str,
-        ra_row,  # Series or None
-        rb_row,  # Series or None
-        confidence: float,
-        status: str,
-    ) -> dict:
-        name_a = ra_row["name"] if ra_row is not None else ""
-        name_b = rb_row["name"] if rb_row is not None else ""
-        canon_name = _pick_name(name_a, name_b)
+    def _attach_rooms(cid: str, source_ids: dict[str, str]) -> None:
+        cluster_room_dfs: dict[str, pd.DataFrame] = {}
+        for supp, hid in source_ids.items():
+            r_df = rooms_by_hotel.get(supp, {}).get(hid)
+            if r_df is not None and not r_df.empty:
+                cluster_room_dfs[supp] = r_df
 
-        am_a = list(ra_row["amenities"]) if ra_row is not None else []
-        am_b = list(rb_row["amenities"]) if rb_row is not None else []
-        merged_am = _merge_list(am_a, am_b)
-
-        attrs = extract_attrs(canon_name, merged_am)
-        occ   = extract_occupancy(canon_name, merged_am)
-
-        is_sm = attrs["is_smoking"]
-        is_sm_int = None if is_sm is None else int(is_sm)
-
-        return {
-            "id":                   next_room_id(),
-            "canonical_hotel_id":   cid,
-            "name":                 canon_name,
-            "bed_type":             attrs["bed_type"],
-            "occupancy":            occ,
-            "meal_plan":            attrs["meal_plan"],
-            "view":                 attrs["view"],
-            "is_smoking":           is_sm_int,
-            "amenities":            merged_am,
-            "match_status":         status,
-            "match_confidence":     confidence,
-            "room_a_id":            ra_row["room_id"] if ra_row is not None else None,
-            "room_b_id":            rb_row["room_id"] if rb_row is not None else None,
-            "name_a":               name_a or None,
-            "name_b":               name_b or None,
-        }
-
-    # ── Helper: attach rooms to a canonical hotel ─────────────────────────────
-    def _attach_rooms(cid: str, a_id: str | None, b_id: str | None) -> None:
-        r_a = rooms_a_by_hotel.get(a_id, pd.DataFrame()) if a_id else pd.DataFrame()
-        r_b = rooms_b_by_hotel.get(b_id, pd.DataFrame()) if b_id else pd.DataFrame()
-
-        matched_rooms, unmatched_a_ids, unmatched_b_ids = match_rooms_for_hotel(r_a, r_b)
-
-        for mr in matched_rooms:
-            ra_row = r_a[r_a["room_id"] == mr["room_a_id"]].iloc[0]
-            rb_row = r_b[r_b["room_id"] == mr["room_b_id"]].iloc[0]
-            canonical_rooms.append(_make_room(cid, ra_row, rb_row, mr["match_confidence"], "matched"))
-
-        for rid in unmatched_a_ids:
-            ra_row = r_a[r_a["room_id"] == rid].iloc[0]
-            canonical_rooms.append(_make_room(cid, ra_row, None, 1.0, "a_only"))
-
-        for rid in unmatched_b_ids:
-            rb_row = r_b[r_b["room_id"] == rid].iloc[0]
-            canonical_rooms.append(_make_room(cid, None, rb_row, 1.0, "b_only"))
-
-    # ── Near-miss helper: works for either side, since the candidate list
-    #    generated during the geo-blocked pass already carries both ids. ────────
-    has_nm_cols = not near_misses_df.empty and {"a_id", "b_id"} <= set(near_misses_df.columns)
-
-    def _attach_near_misses(cid: str, a_id: str | None, b_id: str | None) -> None:
-        if not has_nm_cols:
+        if not cluster_room_dfs:
             return
-        if a_id is not None:
-            nm_rows = near_misses_df[near_misses_df["a_id"] == a_id]
-            candidate_col, candidate_supplier = "b_id", "b"
-        elif b_id is not None:
-            nm_rows = near_misses_df[near_misses_df["b_id"] == b_id]
-            candidate_col, candidate_supplier = "a_id", "a"
-        else:
+
+        for comp in match_rooms_for_hotel(cluster_room_dfs):
+            source_room_ids = {n["supplier"]: n["room_id"] for n in comp["nodes"]}
+            source_names = {n["supplier"]: n["name"] for n in comp["nodes"]}
+
+            canon_name = _pick_name([n["name"] for n in comp["nodes"]])
+            merged_am = _merge_lists([n["amenities"] for n in comp["nodes"]])
+
+            attrs = extract_attrs(canon_name, merged_am)
+            occ = extract_occupancy(canon_name, merged_am)
+            is_sm = attrs["is_smoking"]
+
+            canonical_rooms.append({
+                "id": next_room_id(),
+                "canonical_hotel_id": cid,
+                "name": canon_name,
+                "bed_type": attrs["bed_type"],
+                "occupancy": occ,
+                "meal_plan": attrs["meal_plan"],
+                "view": attrs["view"],
+                "is_smoking": None if is_sm is None else int(is_sm),
+                "amenities": merged_am,
+                "match_status": "matched" if len(comp["nodes"]) > 1 else "singleton",
+                "match_confidence": comp["confidence"],
+                "source_room_ids": source_room_ids,
+                "source_names": source_names,
+            })
+
+    def _attach_near_misses(cid: str, source_ids: dict[str, str]) -> None:
+        if near_misses_df.empty:
             return
-        for _, nm in nm_rows.iterrows():
-            near_miss_rows.append(
-                {
+            
+        for supp, hid in source_ids.items():
+            # If this hotel was involved in any near miss
+            node_id = f"{supp}::{hid}"
+            
+            # Find rows where a_id or b_id matches
+            nm_a = near_misses_df[near_misses_df["a_id"] == node_id]
+            for _, row in nm_a.iterrows():
+                near_miss_rows.append({
                     "canonical_hotel_id": cid,
-                    "candidate_supplier": candidate_supplier,
-                    "candidate_id":       nm[candidate_col],
-                    "confidence":         float(nm["confidence"]),
-                    "geo_score":          float(nm.get("geo_score", 0) or 0),
-                    "name_score":         float(nm.get("name_score", 0) or 0),
-                }
-            )
+                    "candidate_supplier": row["supplier_b"],
+                    "candidate_id": row["b_id"].split("::")[1],
+                    "confidence": float(row["confidence"]),
+                    "geo_score": float(row["geo_score"]),
+                    "name_score": float(row["name_score"])
+                })
+                
+            nm_b = near_misses_df[near_misses_df["b_id"] == node_id]
+            for _, row in nm_b.iterrows():
+                near_miss_rows.append({
+                    "canonical_hotel_id": cid,
+                    "candidate_supplier": row["supplier_a"],
+                    "candidate_id": row["a_id"].split("::")[1],
+                    "confidence": float(row["confidence"]),
+                    "geo_score": float(row["geo_score"]),
+                    "name_score": float(row["name_score"])
+                })
 
-    # ── 1. Matched hotel pairs ────────────────────────────────────────────────
-    if not matches_df.empty:
-        for _, match in matches_df.iterrows():
-            a_id = match["a_id"]
-            b_id = match["b_id"]
-            ra   = hotels_a[a_id]
-            rb   = hotels_b[b_id]
-            cid  = next_hotel_id()
-
-            canonical_hotels.append(
-                {
-                    "id":               cid,
-                    "name":             _pick_name(str(ra["name"]), str(rb["name"])),
-                    "address":          str(ra["address"]) if ra["address"] else str(rb["address"]),
-                    "lat":              _safe_avg(ra["lat"], rb["lat"]),
-                    "lon":              _safe_avg(ra["lon"], rb["lon"]),
-                    "stars":            _safe_avg(ra.get("stars"), rb.get("stars")),
-                    "amenities":        _merge_list(ra["amenities"], rb["amenities"]),
-                    "image_urls":       dedupe_image_urls(_merge_list(ra["image_urls"], rb["image_urls"])),
-                    "match_status":     "matched",
-                    "match_confidence": float(match["confidence"]),
-                    "match_method":     str(match.get("method") or "geo_fuzzy"),
-                    "match_note":       (str(match["llm_reason"]) if match.get("llm_reason") else None),
-                    "supplier_a_id":    a_id,
-                    "supplier_b_id":    b_id,
-                }
-            )
-
-            _attach_near_misses(cid, a_id, None)
-            _attach_rooms(cid, a_id, b_id)
-
-    # ── 2. A-only hotels ──────────────────────────────────────────────────────
-    for a_id, ra in hotels_a.items():
-        if a_id in matched_a_ids:
-            continue
+    for comp in components:
         cid = next_hotel_id()
-        canonical_hotels.append(
-            {
-                "id":               cid,
-                "name":             str(ra["name"]),
-                "address":          str(ra["address"]),
-                "lat":              _safe_float(ra["lat"]),
-                "lon":              _safe_float(ra["lon"]),
-                "stars":            _safe_float(ra.get("stars")),
-                "amenities":        list(ra["amenities"]),
-                "image_urls":       list(ra["image_urls"]),
-                "match_status":     "a_only",
-                "match_confidence": 1.0,
-                "match_method":     "singleton",
-                "match_note":       None,
-                "supplier_a_id":    a_id,
-                "supplier_b_id":    None,
-            }
-        )
-        _attach_near_misses(cid, a_id, None)
-        _attach_rooms(cid, a_id, None)
+        names = []
+        addresses = []
+        lats = []
+        lons = []
+        stars = []
+        amenities = []
+        images = []
+        source_ids = {}
 
-    # ── 3. B-only hotels ──────────────────────────────────────────────────────
-    for b_id, rb in hotels_b.items():
-        if b_id in matched_b_ids:
+        for node in comp["nodes"]:
+            supp = node["supplier"]
+            hid = node["id"]
+            if supp in hotels_indexed and hid in hotels_indexed[supp]:
+                raw = hotels_indexed[supp][hid]
+                names.append(str(raw["name"]))
+                if raw["address"]:
+                    addresses.append(str(raw["address"]))
+                lats.append(raw["lat"])
+                lons.append(raw["lon"])
+                stars.append(raw.get("stars"))
+                amenities.append(list(raw["amenities"]))
+                images.append(list(raw["image_urls"]))
+                source_ids[supp] = hid
+
+        if not source_ids:
             continue
-        cid = next_hotel_id()
-        canonical_hotels.append(
-            {
-                "id":               cid,
-                "name":             str(rb["name"]),
-                "address":          str(rb["address"]),
-                "lat":              _safe_float(rb["lat"]),
-                "lon":              _safe_float(rb["lon"]),
-                "stars":            _safe_float(rb.get("stars")),
-                "amenities":        list(rb["amenities"]),
-                "image_urls":       list(rb["image_urls"]),
-                "match_status":     "b_only",
-                "match_confidence": 1.0,
-                "match_method":     "singleton",
-                "match_note":       None,
-                "supplier_a_id":    None,
-                "supplier_b_id":    b_id,
-            }
-        )
-        _attach_near_misses(cid, None, b_id)
-        _attach_rooms(cid, None, b_id)
+
+        canonical_hotels.append({
+            "id": cid,
+            "name": _pick_name(names),
+            "address": _pick_name(addresses), # Just pick the longest address
+            "lat": _safe_avg(lats),
+            "lon": _safe_avg(lons),
+            "stars": _safe_avg(stars),
+            "amenities": _merge_lists(amenities),
+            "image_urls": dedupe_image_urls(_merge_lists(images)),
+            "match_status": "matched" if len(source_ids) > 1 else "singleton",
+            "match_confidence": float(comp["confidence"]),
+            "match_method": comp["method"],
+            "match_note": comp.get("note"),
+            "source_ids": source_ids
+        })
+
+        _attach_rooms(cid, source_ids)
+        _attach_near_misses(cid, source_ids)
 
     flush_cache()
 
     # ── Write to SQLite ────────────────────────────────────────────────────────
     _write_db(
         db_path,
-        df_a, df_b,
-        rooms_a_df, rooms_b_df,
+        hotel_dfs, room_dfs,
         canonical_hotels, canonical_rooms, near_miss_rows,
     )
 
@@ -425,10 +339,8 @@ def build_canonical(
 
 def _write_db(
     db_path: Path,
-    df_a: pd.DataFrame,
-    df_b: pd.DataFrame,
-    rooms_a_df: pd.DataFrame,
-    rooms_b_df: pd.DataFrame,
+    hotel_dfs: dict[str, pd.DataFrame],
+    room_dfs: dict[str, pd.DataFrame],
     canonical_hotels: list[dict],
     canonical_rooms:  list[dict],
     near_miss_rows:   list[dict],
@@ -438,32 +350,32 @@ def _write_db(
     con.executescript(_DDL)
 
     # ── Raw supplier hotels ───────────────────────────────────────────────────
-    def _hotel_rows(df: pd.DataFrame):
+    raw_hotel_rows = []
+    for supp, df in hotel_dfs.items():
         for _, r in df.iterrows():
-            yield (
-                r["id"], r["name"], r["address"],
+            raw_hotel_rows.append((
+                supp, r["id"], r["name"], r["address"],
                 _safe_float(r["lat"]), _safe_float(r["lon"]),
                 _safe_float(r.get("stars")),
                 json.dumps(list(r["amenities"])),
                 json.dumps(list(r["image_urls"])),
-            )
-
+            ))
+            
     con.executemany(
-        "INSERT OR REPLACE INTO raw_hotels_a VALUES (?,?,?,?,?,?,?,?)",
-        _hotel_rows(df_a),
-    )
-    con.executemany(
-        "INSERT OR REPLACE INTO raw_hotels_b VALUES (?,?,?,?,?,?,?,?)",
-        _hotel_rows(df_b),
+        "INSERT OR REPLACE INTO raw_hotels VALUES (?,?,?,?,?,?,?,?,?)",
+        raw_hotel_rows,
     )
 
     # ── Raw supplier rooms ────────────────────────────────────────────────────
-    def _room_rows(df: pd.DataFrame):
+    raw_room_rows = []
+    for supp, df in room_dfs.items():
         for _, r in df.iterrows():
-            yield (r["room_id"], r["hotel_id"], r["name"], json.dumps(list(r["amenities"])))
-
-    con.executemany("INSERT OR REPLACE INTO raw_rooms_a VALUES (?,?,?,?)", _room_rows(rooms_a_df))
-    con.executemany("INSERT OR REPLACE INTO raw_rooms_b VALUES (?,?,?,?)", _room_rows(rooms_b_df))
+            raw_room_rows.append((
+                supp, r["room_id"], r["hotel_id"], r["name"], 
+                json.dumps(list(r["amenities"]))
+            ))
+            
+    con.executemany("INSERT OR REPLACE INTO raw_rooms VALUES (?,?,?,?,?)", raw_room_rows)
 
     # ── Canonical hotels ──────────────────────────────────────────────────────
     hotel_rows = [
@@ -473,12 +385,12 @@ def _write_db(
             json.dumps(h["amenities"]),
             json.dumps(h["image_urls"]),
             h["match_status"], h["match_confidence"], h["match_method"], h.get("match_note"),
-            h["supplier_a_id"], h["supplier_b_id"],
+            json.dumps(h["source_ids"]),
         )
         for h in canonical_hotels
     ]
     con.executemany(
-        "INSERT INTO canonical_hotels VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO canonical_hotels VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         hotel_rows,
     )
 
@@ -494,13 +406,13 @@ def _write_db(
             r["view"], r["is_smoking"],
             json.dumps(r["amenities"]),
             r["match_status"], r["match_confidence"],
-            r["room_a_id"], r["room_b_id"],
-            r["name_a"], r["name_b"],
+            json.dumps(r["source_room_ids"]),
+            json.dumps(r["source_names"]),
         )
         for r in canonical_rooms
     ]
     con.executemany(
-        "INSERT INTO canonical_rooms VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO canonical_rooms VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         room_rows,
     )
 
@@ -524,8 +436,6 @@ def _write_json(
     canonical_rooms:  list[dict],
     near_miss_rows:   list[dict],
 ) -> None:
-    """Write the canonical artifact JSON (hotels + rooms nested)."""
-    # Index rooms and near-misses by hotel id
     rooms_by_hotel: dict[str, list[dict]] = {}
     for r in canonical_rooms:
         rooms_by_hotel.setdefault(r["canonical_hotel_id"], []).append(r)

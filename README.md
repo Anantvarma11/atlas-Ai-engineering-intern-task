@@ -1,6 +1,6 @@
 # Away Hotels
 
-A canonical hotel layer built from two Bangalore supplier feeds, plus a UI on top.
+A canonical hotel layer built from any number of supplier feeds (two Bangalore feeds by default), plus a UI on top.
 
 ```text
 backend/    FastAPI service + matching pipeline — see backend/README.md

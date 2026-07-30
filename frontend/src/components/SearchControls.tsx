@@ -3,8 +3,7 @@ import type { MatchStatus } from "../api/types";
 const FILTERS: { value: MatchStatus | ""; label: string }[] = [
   { value: "", label: "All" },
   { value: "matched", label: "Matched" },
-  { value: "a_only", label: "Supplier A only" },
-  { value: "b_only", label: "Supplier B only" },
+  { value: "singleton", label: "Single source" },
 ];
 
 export function SearchControls({

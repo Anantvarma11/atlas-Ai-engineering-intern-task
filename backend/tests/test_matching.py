@@ -1,15 +1,16 @@
-"""Unit tests for hotel matching guard-rails and room attribute extraction."""
+"""Unit tests for hotel/room matching guard-rails and attribute extraction."""
 
 import pandas as pd
 import pytest
+from qdrant_client import QdrantClient
 
 from pipeline.match_hotels import (
     MATCH_THRESHOLD,
     _geo_score,
     _haversine,
-    _name_score,
     _prop_numbers,
     _stars_score,
+    apply_llm_matches,
     match_hotels,
 )
 from pipeline.match_rooms import (
@@ -39,11 +40,6 @@ def test_geo_score_half_life():
     assert abs(_geo_score(0.15) - 0.5) < 1e-9
 
 
-def test_name_score_brand_prefix_stripped():
-    # OYO prefix should not depress similarity
-    assert _name_score("OYO 123 Grand Palace", "Grand Palace") > 0.9
-
-
 def test_stars_score():
     assert _stars_score(3, 3) == 1.0
     assert _stars_score(3, 4) == 0.5
@@ -59,24 +55,44 @@ def test_prop_numbers():
 # Hotel matching end-to-end guard-rails
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Shared in-memory client for all tests — match_hotels() clears/recreates its
+# collection on every call, so reuse across tests is safe and avoids
+# reloading the embedding model per test.
+_test_qclient = QdrantClient(":memory:")
+
+
 def _hotel_df(rows):
     return pd.DataFrame(rows, columns=["id", "name", "address", "lat", "lon", "stars", "amenities", "image_urls"])
+
+
+def _match(dfs: dict[str, pd.DataFrame]):
+    return match_hotels(dfs, qclient=_test_qclient)
+
+
+def _matched_components(components: list[dict]) -> list[dict]:
+    return [c for c in components if len(c["nodes"]) > 1]
+
+
+def _nodes_of(component: dict) -> set[tuple[str, str]]:
+    return {(n["supplier"], n["id"]) for n in component["nodes"]}
 
 
 def test_exact_pair_matches():
     df_a = _hotel_df([("A-1", "Hotel Crystal Castle", "addr", 12.903, 77.585, 3.0, [], [])])
     df_b = _hotel_df([("B-1", "Hotel Crystal Castle", "addr", 12.903, 77.585, 3.0, [], [])])
-    matches, _ = match_hotels(df_a, df_b)
-    assert len(matches) == 1
-    assert matches.iloc[0]["confidence"] >= 0.99
+    components, _ = _match({"a": df_a, "b": df_b})
+    matched = _matched_components(components)
+    assert len(matched) == 1
+    assert matched[0]["confidence"] >= 0.99
+    assert _nodes_of(matched[0]) == {("a", "A-1"), ("b", "B-1")}
 
 
 def test_geo_only_pair_rejected():
     """Same coordinates + same stars but totally different names must NOT match."""
     df_a = _hotel_df([("A-1", "Ashwa Comfort", "addr", 12.903, 77.585, 3.0, [], [])])
     df_b = _hotel_df([("B-1", "Zenith Plaza Retreat", "addr", 12.903, 77.585, 3.0, [], [])])
-    matches, near = match_hotels(df_a, df_b)
-    assert len(matches) == 0
+    components, near = _match({"a": df_a, "b": df_b})
+    assert _matched_components(components) == []
     assert len(near) == 1  # kept as a near-miss for review
 
 
@@ -84,18 +100,20 @@ def test_property_number_veto():
     """Different OYO property numbers at same location must NOT match."""
     df_a = _hotel_df([("A-1", "OYO 16455 Amazing Inn", "addr", 12.903, 77.585, 2.0, [], [])])
     df_b = _hotel_df([("B-1", "OYO 436 Emirates Suites", "addr", 12.903, 77.585, 2.0, [], [])])
-    matches, _ = match_hotels(df_a, df_b)
-    assert len(matches) == 0
+    components, _ = _match({"a": df_a, "b": df_b})
+    assert _matched_components(components) == []
 
 
 def test_rescue_pass_catches_distant_identical_names():
     """Identical names ~600m apart (beyond 350m cutoff) should be rescued."""
     df_a = _hotel_df([("A-1", "The Grand Magnolia Residency", "addr", 12.9000, 77.5850, 3.0, [], [])])
     df_b = _hotel_df([("B-1", "The Grand Magnolia Residency", "addr", 12.9055, 77.5850, 3.0, [], [])])
-    matches, _ = match_hotels(df_a, df_b)
-    assert len(matches) == 1
+    components, _ = _match({"a": df_a, "b": df_b})
+    matched = _matched_components(components)
+    assert len(matched) == 1
+    assert matched[0]["method"] == "rescue"
     # Rescue confidence is name-driven and should still clear the threshold
-    assert matches.iloc[0]["confidence"] >= MATCH_THRESHOLD
+    assert matched[0]["confidence"] >= MATCH_THRESHOLD
 
 
 def test_match_method_tagged_geo_fuzzy_vs_rescue():
@@ -113,10 +131,10 @@ def test_match_method_tagged_geo_fuzzy_vs_rescue():
             ("B-2", "The Grand Magnolia Residency", "addr", 12.9055, 77.5850, 3.0, [], []),
         ]
     )
-    matches, _ = match_hotels(df_a, df_b)
-    methods = dict(zip(matches["a_id"], matches["method"]))
-    assert methods["A-1"] == "geo_fuzzy"
-    assert methods["A-2"] == "rescue"
+    components, _ = _match({"a": df_a, "b": df_b})
+    methods = {frozenset(_nodes_of(c)): c["method"] for c in _matched_components(components)}
+    assert methods[frozenset({("a", "A-1"), ("b", "B-1")})] == "geo_fuzzy"
+    assert methods[frozenset({("a", "A-2"), ("b", "B-2")})] == "rescue"
 
 
 def test_one_to_one_assignment():
@@ -126,9 +144,34 @@ def test_one_to_one_assignment():
         ("A-2", "Sunrise Residency Annex", "addr", 12.9031, 77.5851, 3.0, [], []),
     ])
     df_b = _hotel_df([("B-1", "Sunrise Residency", "addr", 12.9030, 77.5850, 3.0, [], [])])
-    matches, _ = match_hotels(df_a, df_b)
-    assert len(matches) == 1
-    assert matches.iloc[0]["a_id"] == "A-1"
+    components, _ = _match({"a": df_a, "b": df_b})
+    matched = _matched_components(components)
+    assert len(matched) == 1
+    assert _nodes_of(matched[0]) == {("a", "A-1"), ("b", "B-1")}
+    # A-2 must remain a singleton, not silently merged into the same cluster
+    singleton_ids = {n["id"] for c in components if len(c["nodes"]) == 1 for n in c["nodes"]}
+    assert "A-2" in singleton_ids
+
+
+def test_three_way_cluster_via_llm_promotion():
+    """A hotel present in three suppliers: heuristic matching pairs two of
+    them, and apply_llm_matches can fold in the third supplier's near-miss
+    into the same canonical cluster."""
+    df_a = _hotel_df([("A-1", "Hotel Crystal Castle", "addr", 12.903, 77.585, 3.0, [], [])])
+    df_b = _hotel_df([("B-1", "Hotel Crystal Castle", "addr", 12.903, 77.585, 3.0, [], [])])
+    df_c = _hotel_df([("C-1", "Crystal Castle Hotel Bangalore", "addr", 12.903, 77.585, 3.0, [], [])])
+    components, near = _match({"a": df_a, "b": df_b, "c": df_c})
+
+    llm_matches = pd.DataFrame([{
+        "a_id": "a::A-1", "b_id": "c::C-1", "confidence": 0.9,
+        "geo_score": 1.0, "name_score": 0.6, "stars_score": 1.0, "dist_km": 0.0,
+        "method": "llm", "llm_reason": "same brand, worded differently",
+    }])
+    merged = apply_llm_matches(components, llm_matches)
+    big = [c for c in merged if len(c["nodes"]) == 3]
+    assert len(big) == 1
+    assert _nodes_of(big[0]) == {("a", "A-1"), ("b", "B-1"), ("c", "C-1")}
+    assert big[0]["method"] == "llm"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -202,33 +245,39 @@ def _rooms_df(rows):
     return pd.DataFrame(rows, columns=["hotel_id", "room_id", "name", "amenities"])
 
 
+def _matched_room_components(components: list[dict]) -> list[dict]:
+    return [c for c in components if len(c["nodes"]) > 1]
+
+
 def test_room_match_basic():
     ra = _rooms_df([("H1", "RA1", "Deluxe, Twin", [])])
     rb = _rooms_df([("H1", "RB1", "Twin Deluxe Room w/ Breakfast", [])])
-    matched, ua, ub = match_rooms_for_hotel(ra, rb)
+    components = match_rooms_for_hotel({"a": ra, "b": rb})
+    matched = _matched_room_components(components)
     assert len(matched) == 1
-    assert not ua and not ub
+    assert len(components) == 1  # no leftover singletons
 
 
 def test_room_bed_conflict_veto():
     """'Deluxe King' must never match 'Deluxe Twin' despite similar names."""
     ra = _rooms_df([("H1", "RA1", "Deluxe King Room", [])])
     rb = _rooms_df([("H1", "RB1", "Deluxe Twin Room", [])])
-    matched, ua, ub = match_rooms_for_hotel(ra, rb)
-    assert len(matched) == 0
-    assert ua == ["RA1"] and ub == ["RB1"]
+    components = match_rooms_for_hotel({"a": ra, "b": rb})
+    assert _matched_room_components(components) == []
+    assert len(components) == 2  # both stay singletons
 
 
 def test_room_unmatched_stays_unmatched():
     ra = _rooms_df([("H1", "RA1", "Presidential Villa", [])])
     rb = _rooms_df([("H1", "RB1", "Budget Dorm Bed", [])])
-    matched, ua, ub = match_rooms_for_hotel(ra, rb)
-    assert len(matched) == 0
-    assert ua == ["RA1"] and ub == ["RB1"]
+    components = match_rooms_for_hotel({"a": ra, "b": rb})
+    assert _matched_room_components(components) == []
+    assert len(components) == 2
 
 
 def test_room_empty_sides():
     empty = _rooms_df([])
     rb = _rooms_df([("H1", "RB1", "Deluxe", [])])
-    matched, ua, ub = match_rooms_for_hotel(empty, rb)
-    assert matched == [] and ua == [] and ub == ["RB1"]
+    components = match_rooms_for_hotel({"a": empty, "b": rb})
+    assert len(components) == 1
+    assert components[0]["nodes"][0]["room_id"] == "RB1"

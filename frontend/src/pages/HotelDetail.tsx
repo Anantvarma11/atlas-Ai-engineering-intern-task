@@ -71,7 +71,7 @@ export function HotelDetail() {
         </h1>
         <p className="mt-2 text-sm text-ink-500">{error?.message}</p>
         <Link
-          to="/"
+          to="/app"
           className="mt-6 inline-flex items-center gap-1.5 rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-ink-800"
         >
           ← Back to search
@@ -82,7 +82,7 @@ export function HotelDetail() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-24 pt-6 sm:px-6">
-      <Link to="/" className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-ink-500 transition hover:text-ink-900">
+      <Link to="/app" className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-ink-500 transition hover:text-ink-900">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M19 12H5m0 0 7 7m-7-7 7-7" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -140,7 +140,7 @@ export function HotelDetail() {
       )}
 
       <Section title="Source provenance" subtitle="Verbatim records from each supplier, before merging.">
-        <ProvenancePanel a={hotel.sources.supplier_a} b={hotel.sources.supplier_b} />
+        <ProvenancePanel sources={hotel.sources} />
       </Section>
 
       <Section

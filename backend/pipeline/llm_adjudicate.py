@@ -14,7 +14,7 @@ assignment explicitly calls out as good judgment — the opposite of pushing
 all ~13M A×B pairs, or even the ~300k geo-blocked candidates, through a model.
 
 This module is entirely opt-in and fails soft:
-- If DEEPSEEK_API_KEY is unset and no cached response exists for a pair, that
+- If CEREBRAS_API_KEY is unset and no cached response exists for a pair, that
   pair is left as a near-miss and the pipeline keeps running at $0 — nothing
   breaks and nothing regresses versus the pure-heuristic baseline.
 - Every request/response is cached to pipeline/cache/llm_adjudications.json,
@@ -57,16 +57,12 @@ NAME_HIGH = 0.85   # at/above this, the property-number veto's own escape hatch 
 MAX_PAIRS = 200    # hard cap per run — cost discipline, not a tuning knob to raise casually
 BATCH_SIZE = 20    # pairs per request, amortizes fixed prompt overhead
 
-MODEL = "deepseek-chat"
-BASE_URL = "https://api.deepseek.com"
+MODEL = "gpt-oss-120b"
+BASE_URL = "https://api.cerebras.ai/v1"
 
-# DeepSeek per-token pricing in USD (cache-miss rate), captured at the time
-# this module was written. Token counts stored in the spend log are exact and
-# authoritative regardless of price drift — verify current pricing at
-# https://api-docs.deepseek.com/quick_start/pricing before quoting a new $
-# figure from an old token count.
-PRICE_PER_1M_INPUT = 0.27
-PRICE_PER_1M_OUTPUT = 1.10
+# Cerebras free tier pricing (USD)
+PRICE_PER_1M_INPUT = 0.0
+PRICE_PER_1M_OUTPUT = 0.0
 
 
 def _pair_key(a_id: str, b_id: str) -> str:
@@ -89,8 +85,7 @@ def _save_json(path: Path, data) -> None:
 
 def _select_hard_cases(
     near_misses_df: pd.DataFrame,
-    matched_a: set,
-    matched_b: set,
+    matched_nodes: set,
 ) -> pd.DataFrame:
     """
     Pick the bounded set of near-miss pairs worth spending a model call on:
@@ -102,8 +97,8 @@ def _select_hard_cases(
         return near_misses_df
 
     df = near_misses_df[
-        (~near_misses_df["a_id"].isin(matched_a))
-        & (~near_misses_df["b_id"].isin(matched_b))
+        (~near_misses_df["a_id"].isin(matched_nodes))
+        & (~near_misses_df["b_id"].isin(matched_nodes))
         & (near_misses_df["geo_score"] >= GEO_FLOOR)
         & (near_misses_df["name_score"] >= NAME_LOW)
         & (near_misses_df["name_score"] < NAME_HIGH)
@@ -178,18 +173,28 @@ def _update_spend_log(prompt_tokens: int, completion_tokens: int, pairs_called: 
 
 
 def adjudicate_hard_cases(
-    df_a: pd.DataFrame,
-    df_b: pd.DataFrame,
     near_misses_df: pd.DataFrame,
-    matched_a: set,
-    matched_b: set,
+    hotels_indexed: dict[str, dict],
+    matched_nodes: set,
 ) -> tuple[pd.DataFrame, dict]:
     """
-    Ask DeepSeek to adjudicate the bounded set of genuinely ambiguous
+    Ask Cerebras to adjudicate the bounded set of genuinely ambiguous
     near-miss hotel pairs. Returns (new_matches_df, run_report).
 
-    new_matches_df has the same shape as match_hotels()'s matches_df, plus
-    "method"="llm" and an "llm_reason" column for provenance.
+    Parameters
+    ----------
+    near_misses_df : output of match_hotels() — a_id/b_id are "supplier::id"
+                     node strings, supplier_a/supplier_b name which supplier
+                     each side belongs to.
+    hotels_indexed : {supplier: {raw_id: row}} for every supplier's raw
+                      hotel table, for prompt construction.
+    matched_nodes   : "supplier::id" strings already claimed by a
+                      heuristic match, so an LLM call can't create a
+                      conflicting double-claim.
+
+    new_matches_df has the same a_id/b_id node-string shape as
+    match_hotels()'s near_misses_df, plus "method"="llm" and an
+    "llm_reason" column for provenance.
     """
     empty_matches = pd.DataFrame(
         columns=["a_id", "b_id", "confidence", "geo_score", "name_score",
@@ -201,16 +206,17 @@ def adjudicate_hard_cases(
         "completion_tokens": 0, "cost_usd_this_run": 0.0,
     }
 
-    candidates = _select_hard_cases(near_misses_df, matched_a, matched_b)
+    candidates = _select_hard_cases(near_misses_df, matched_nodes)
     report["pairs_considered"] = len(candidates)
     if candidates.empty:
         return empty_matches, report
 
-    api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    api_key = os.environ.get("CEREBRAS_API_KEY", "").strip()
     cache = _load_json(CACHE_PATH, {})
 
-    hotels_a = {r["id"]: r for _, r in df_a.iterrows()}
-    hotels_b = {r["id"]: r for _, r in df_b.iterrows()}
+    def _lookup(node_id: str, supplier: str):
+        raw_id = node_id.split("::", 1)[1]
+        return hotels_indexed.get(supplier, {}).get(raw_id)
 
     results: dict[str, dict] = {}
     to_call: list[dict] = []
@@ -227,7 +233,7 @@ def adjudicate_hard_cases(
         if not api_key:
             print(
                 f"[llm] {len(to_call)} hard case(s) have no cached adjudication and "
-                "DEEPSEEK_API_KEY is not set — skipping (pipeline stays at $0 for "
+                "CEREBRAS_API_KEY is not set — skipping (pipeline stays at $0 for "
                 "these pairs). Set the key and re-run to adjudicate them once; "
                 "results are cached afterward."
             )
@@ -246,7 +252,8 @@ def adjudicate_hard_cases(
                     batch_rows = to_call[i : i + BATCH_SIZE]
                     batch = []
                     for j, row in enumerate(batch_rows):
-                        ra, rb = hotels_a[row["a_id"]], hotels_b[row["b_id"]]
+                        ra = _lookup(row["a_id"], row["supplier_a"])
+                        rb = _lookup(row["b_id"], row["supplier_b"])
                         stars_a = ra.get("stars")
                         stars_b = rb.get("stars")
                         batch.append(

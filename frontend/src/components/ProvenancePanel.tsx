@@ -1,29 +1,24 @@
 import type { RawSupplierHotel } from "../api/types";
 import { formatStars } from "../lib/format";
 
-function SourceCard({ label, color, hotel }: { label: string; color: "blue" | "violet"; hotel: RawSupplierHotel | null }) {
-  const theme =
-    color === "blue"
-      ? { ring: "ring-blue-100", chip: "bg-blue-500", head: "text-blue-700 bg-blue-50" }
-      : { ring: "ring-violet-100", chip: "bg-violet-500", head: "text-violet-700 bg-violet-50" };
+// A small color palette generator for dynamic suppliers
+const COLORS = [
+  { ring: "ring-blue-100", chip: "bg-blue-500", head: "text-blue-700 bg-blue-50" },
+  { ring: "ring-violet-100", chip: "bg-violet-500", head: "text-violet-700 bg-violet-50" },
+  { ring: "ring-emerald-100", chip: "bg-emerald-500", head: "text-emerald-700 bg-emerald-50" },
+  { ring: "ring-amber-100", chip: "bg-amber-500", head: "text-amber-700 bg-amber-50" },
+  { ring: "ring-rose-100", chip: "bg-rose-500", head: "text-rose-700 bg-rose-50" },
+];
 
-  if (!hotel) {
-    return (
-      <div className={`flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-ink-200 p-6 text-center`}>
-        <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold text-white ${theme.chip}`}>
-          {label}
-        </span>
-        <p className="text-sm text-ink-400">No record from this supplier</p>
-      </div>
-    );
-  }
+function SourceCard({ label, hotel, index }: { label: string; hotel: RawSupplierHotel; index: number }) {
+  const theme = COLORS[index % COLORS.length];
 
   return (
-    <div className={`flex-1 rounded-xl bg-white p-4 ring-1 ring-inset ${theme.ring}`}>
+    <div className={`flex-1 rounded-xl bg-white p-4 ring-1 ring-inset ${theme.ring} min-w-[280px]`}>
       <div className="mb-3 flex items-center justify-between">
         <span className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${theme.head}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${theme.chip}`} />
-          Supplier {label}
+          {label}
         </span>
         <span className="font-mono text-[11px] text-ink-400">{hotel.id}</span>
       </div>
@@ -52,11 +47,21 @@ function SourceCard({ label, color, hotel }: { label: string; color: "blue" | "v
   );
 }
 
-export function ProvenancePanel({ a, b }: { a: RawSupplierHotel | null; b: RawSupplierHotel | null }) {
+export function ProvenancePanel({ sources }: { sources: Record<string, RawSupplierHotel> }) {
+  const entries = Object.entries(sources);
+  if (entries.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-ink-200 p-6 text-center text-sm text-ink-500">
+        No provenance records found.
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-3 sm:flex-row">
-      <SourceCard label="A" color="blue" hotel={a} />
-      <SourceCard label="B" color="violet" hotel={b} />
+    <div className="flex flex-col gap-3 sm:flex-row overflow-x-auto pb-4">
+      {entries.map(([supp, hotel], i) => (
+        <SourceCard key={supp} label={supp} hotel={hotel} index={i} />
+      ))}
     </div>
   );
 }

@@ -3,6 +3,14 @@ import type { CanonicalRoom } from "../api/types";
 import { MatchBadge } from "./MatchBadge";
 import { ConfidenceRing } from "./ConfidenceRing";
 
+const COLORS = [
+  "bg-blue-50 text-blue-700",
+  "bg-violet-50 text-violet-700",
+  "bg-emerald-50 text-emerald-700",
+  "bg-amber-50 text-amber-700",
+  "bg-rose-50 text-rose-700",
+];
+
 function Attr({ label, value }: { label: string; value: string | null }) {
   if (!value) return null;
   return (
@@ -13,13 +21,13 @@ function Attr({ label, value }: { label: string; value: string | null }) {
   );
 }
 
-function RawRoomChip({ label, color, name }: { label: string; color: "blue" | "violet"; name: string | undefined }) {
+function RawRoomChip({ label, name, index }: { label: string; name: string | undefined; index: number }) {
   if (!name) return null;
-  const cls = color === "blue" ? "bg-blue-50 text-blue-700" : "bg-violet-50 text-violet-700";
+  const cls = COLORS[index % COLORS.length];
   return (
     <div className="flex items-start gap-1.5 text-xs">
       <span className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${cls}`}>
-        {label}
+        {label[0].toUpperCase()}
       </span>
       <span className="text-ink-500">{name}</span>
     </div>
@@ -27,6 +35,8 @@ function RawRoomChip({ label, color, name }: { label: string; color: "blue" | "v
 }
 
 function RoomRow({ room }: { room: CanonicalRoom }) {
+  const sourcesEntries = Object.entries(room.sources || {});
+
   return (
     <div className="rounded-xl bg-white p-4 ring-1 ring-ink-100">
       <div className="mb-2.5 flex items-start justify-between gap-3">
@@ -48,10 +58,11 @@ function RoomRow({ room }: { room: CanonicalRoom }) {
         {room.is_smoking !== null && <Attr label="" value={room.is_smoking ? "Smoking" : "Non-smoking"} />}
       </div>
 
-      {(room.supplier_a_room || room.supplier_b_room) && (
+      {sourcesEntries.length > 0 && (
         <div className="flex flex-col gap-1 border-t border-dashed border-ink-100 pt-2.5">
-          <RawRoomChip label="A" color="blue" name={room.supplier_a_room?.name} />
-          <RawRoomChip label="B" color="violet" name={room.supplier_b_room?.name} />
+          {sourcesEntries.map(([supp, rawRoom], i) => (
+            <RawRoomChip key={supp} label={supp} name={rawRoom?.name} index={i} />
+          ))}
         </div>
       )}
     </div>

@@ -40,6 +40,7 @@ export function StatsBar({ stats, loading }: { stats: StatsResponse | null; load
 
   const totalHotels = Object.values(stats.hotels).reduce((a, b) => a + b, 0);
   const matched = stats.hotels.matched ?? 0;
+  const singleton = stats.hotels.singleton ?? 0;
   const matchRate = totalHotels ? matched / totalHotels : 0;
   const totalRooms = Object.values(stats.rooms).reduce((a, b) => a + b, 0);
   const spend = stats.llm_spend;
@@ -47,9 +48,8 @@ export function StatsBar({ stats, loading }: { stats: StatsResponse | null; load
   return (
     <div className="flex flex-wrap gap-3">
       <StatTile label="Canonical hotels" value={totalHotels.toLocaleString()} sub={`${matched.toLocaleString()} matched`} />
-      <StatTile label="Match rate" value={`${Math.round(matchRate * 100)}%`} accent="emerald" sub="both suppliers" />
-      <StatTile label="Supplier A only" value={(stats.hotels.a_only ?? 0).toLocaleString()} accent="blue" />
-      <StatTile label="Supplier B only" value={(stats.hotels.b_only ?? 0).toLocaleString()} accent="violet" />
+      <StatTile label="Match rate" value={`${Math.round(matchRate * 100)}%`} accent="emerald" sub="across all suppliers" />
+      <StatTile label="Single source" value={singleton.toLocaleString()} accent="blue" sub="no cross-supplier match" />
       <StatTile label="Canonical rooms" value={totalRooms.toLocaleString()} sub={`${(stats.rooms.matched ?? 0).toLocaleString()} matched`} />
       <StatTile
         label="LLM spend"

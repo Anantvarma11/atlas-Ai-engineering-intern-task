@@ -4,129 +4,245 @@
 
 ### Hotel matching
 
-The brute-force A×B comparison (~13 M pairs) is too large to pass through anything expensive. My candidate-generation step cuts it to ~300 k pairs using a **geospatial grid**:
+Two suppliers ("A" and "B") each list Bangalore hotels independently — same
+physical property, different internal ID, differently-worded name, a
+slightly different GPS fix, its own amenity vocabulary. The pipeline is
+written to generalize past exactly two suppliers (any number of
+`{supplier}_hotels.csv` files in `data/` are picked up automatically), so the
+matcher below is described in those terms even though this dataset only has
+two.
 
-- Round each hotel's lat/lon to the nearest 0.005° (~555 m grid cell).
-- For each A hotel examine only B hotels in the same cell plus its 8 neighbours.
-- Hard-cut at 350 m Haversine distance.
-
-This reduces the comparison space by ~99 % without losing any real match — two hotels at the same address can have coordinate offsets up to ~100–150 m across suppliers (different GPS sources, entrances), so the 350 m threshold is deliberately loose.
+**Candidate generation.** Every hotel, from every supplier, is embedded with
+Qdrant's FastEmbed (`BAAI/bge-small-en-v1.5`), run fully in-process — no
+external vector database to stand up, no network hop. For each hotel we query
+for its nearest semantic neighbors, restricted to a 1.5 km geo radius, then
+score candidates within a stricter 350 m hard cutoff (the 1.5 km radius only
+matters for the rescue pass below).
 
 Each surviving candidate pair is scored with three signals:
 
 | Signal | Weight | Implementation |
 |--------|--------|----------------|
 | `geo_score` | 45 % | Exponential decay, half-life 150 m (`0.5^(d/0.15)`) |
-| `name_score` | 45 % | RapidFuzz `token_set_ratio` after stripping OTA brand prefixes ("Collection O", "FabHotel", etc.) |
+| `name_score` | 45 % | FastEmbed cosine similarity on normalized names (OTA brand prefixes stripped: "Collection O", "FabHotel", etc.), stretched back to 0–1 since raw cosine similarity for short hotel-name strings is compressed into a narrow ~0.75–1.0 band |
 | `stars_score` | 10 % | `1 − |Δstars| / 2`, acts as tie-breaker |
 
-Matches are accepted via **greedy one-to-one assignment** (sort by `combined` desc, take highest-confidence pair, skip if either side already claimed). Pairs with combined ≥ 0.55 become matches; 0.30–0.55 become near-misses stored per canonical hotel.
+**Assignment.** Candidate pairs become edges in a graph; accepted edges
+(eligible, weight ≥ 0.55) go through `networkx.max_weight_matching` — the
+actual one-to-one bipartite assignment (an earlier draft's docstring claimed
+this but the code underneath only took raw connected components, which could
+silently merge two of A's hotels into one canonical record through a shared
+B neighbor; that mismatch is fixed by construction now, and
+`test_one_to_one_assignment` pins it down). Pairs that score above the
+near-miss floor but lose the matching (either below threshold, vetoed, or
+out-competed by a better edge on one of their two endpoints) are kept as
+near-misses.
 
-Two **accuracy guard-rails** protect against a subtle flaw in the weighted score — perfect geo + equal stars already sums to 0.55, so co-located but *different* hotels could match with zero name evidence:
+Two **accuracy guard-rails** protect against a subtle flaw in the weighted
+score — perfect geo + equal stars already sums to 0.55, so co-located but
+*different* hotels could match with zero name evidence:
 
-1. **Minimum name evidence** — a pair is never accepted with `name_score < 0.45`; geography alone can't create a match. An error audit of the unguarded version found ~70–130 false positives of exactly this type (e.g. "OYO 2420 Ashwa Comfort" ↔ "Ample Inn" at identical coordinates).
-2. **Property-number veto** — budget brands encode a unique property ID in the name ("OYO 16455 …" vs "OYO 436 …"). If both names carry numbers and the sets are disjoint, the pair is vetoed unless the rest of the name is near-identical.
+1. **Minimum name evidence** — a pair is never accepted with
+   `name_score < 0.45`; geography alone can't create a match.
+2. **Property-number veto** — budget brands encode a unique property ID in
+   the name ("OYO 16455 …" vs "OYO 436 …"). If both names carry numbers and
+   the sets are disjoint, the pair is vetoed unless the rest of the name is
+   near-identical.
 
-A **rescue pass** then recovers false negatives from the 350 m hard cutoff: unmatched hotels with near-identical names (`token_set_ratio ≥ 0.95`) within 1.5 km are matched with an honestly lower, name-driven confidence (`0.70·name + 0.20·relaxed-geo + 0.10·stars`) — this catches real pairs whose supplier coordinates disagree (different GPS fixes on large properties).
+A **rescue pass** then recovers false negatives from the 350 m hard cutoff:
+unmatched hotels with near-identical names (similarity ≥ 0.95) within 1.5 km
+are matched with an honestly lower, name-driven confidence
+(`0.70·name + 0.20·relaxed-geo + 0.10·stars`) — this catches real pairs whose
+supplier coordinates disagree (different GPS fixes on large properties).
 
-**Result:** 2,534 matched pairs from 3,409 A × 3,762 B hotels (~2 s matching). The guard-rails removed ~100 geography-only false positives that the naive version accepted; the rescue pass recovered pairs the hard cutoff lost. Vetoed pairs are kept as near-misses so a reviewer can audit every rejection.
+**Result on this dataset:** 2,540 matched pairs from 3,409 A × 3,762 B hotels
+→ 4,631 canonical hotels (2,091 singletons). Matching took ~340 s (see
+"What this trades away" below for why, honestly).
 
 Confidence distribution among matched pairs:
 
 | Confidence range | Count |
 |-----------------|-------|
-| 1.00 | 1,007 |
-| 0.90–0.99 | 944 |
-| 0.80–0.89 | 334 |
-| 0.70–0.79 | 120 |
-| 0.55–0.69 | 129 |
+| 1.00 | 963 |
+| 0.90–0.99 | 853 |
+| 0.80–0.89 | 388 |
+| 0.70–0.79 | 177 |
+| 0.55–0.69 | 159 |
 
-The 129 edge-case matches (0.55–0.69) are genuine but uncertain — and now all of them carry real name evidence (name_score ≥ 0.45). A spot-check showed they're mostly renames: "Super Townhouse Oak AECS Formerly Bangalore Times" matched because the B-side still uses the old name "Bangalore Times Hotel"; the near-miss data lets a human reviewer verify quickly.
+The 159 edge-case matches (0.55–0.69) all carry real name evidence
+(`name_score ≥ 0.45` by construction) — genuine but uncertain, and visible as
+such through `match_confidence` rather than reported with false certainty.
 
 ### Room matching
 
-Rooms can't use geo signals. Within each matched hotel pair I do:
+Rooms can't use geo signals, but the problem is otherwise the same shape as
+hotel matching, so it reuses the same machinery: an in-process FastEmbed
+collection per hotel cluster, a bed-type conflict veto, and
+`max_weight_matching` for one-to-one assignment across suppliers.
 
-1. **Attribute extraction** from room name + amenities combined (Supplier A buries structured data like "Queen Bed", "3 Adults", "City view" in the amenities field rather than the name). Patterns cover numeric forms ("3 Bed", "2 Bedroom"), abbreviations ("Dbl", "Sgl"), and dorms/bunks. "Suite" is deliberately **not** a bed type — it's a room category, and treating it as a bed caused false conflicts.
-2. **Name normalization** before fuzzy comparison: abbreviation expansion ("w/" → "with", "Dbl" → "double"), punctuation stripping — so notation differences don't depress scores.
-3. **Greedy one-to-one assignment** by `token_set_ratio` ≥ 0.55 on normalized names, with a **bed-type conflict veto**: "Deluxe King" is never matched to "Deluxe Twin" no matter how similar the rest of the name is.
+1. **Attribute extraction** from room name + amenities combined (Supplier A
+   buries structured data like "Queen Bed", "3 Adults", "City view" in the
+   amenities field rather than the name). Patterns cover numeric forms
+   ("3 Bed", "2 Bedroom"), abbreviations ("Dbl", "Sgl"), and dorms/bunks.
+   "Suite" is deliberately **not** a bed type — it's a room category, and
+   treating it as a bed caused false conflicts.
+2. **Name normalization** before similarity scoring: abbreviation expansion
+   ("w/" → "with", "Dbl" → "double"), punctuation stripping.
+3. **Bed-type conflict veto**: "Deluxe King" is never matched to
+   "Deluxe Twin" no matter how similar the rest of the name is — verified at
+   0 conflicts across all 1,711 matched room pairs in the committed DB.
 
-Room attribute coverage out of 19,341 canonical rooms: bed type 59 % (11,416), occupancy 59 % (11,468), view 18 % (3,451), non-"Room Only" meal plan <1 % — a grep of both CSVs confirms meal-plan info essentially doesn't exist in this data (Bangalore budget/mid-scale hotels almost never bundle meals). The coverage numbers are honest: many rooms are named "Run of House", "Standard", "Deluxe" with no attribute details — I extract what's there and don't fabricate.
+Room attribute coverage out of 19,484 canonical rooms: bed type 58.0%
+(11,307), occupancy 58.5% (11,406), view 17.3% (3,373), non-"Room Only" meal
+plan effectively 0% (5 rooms) — a grep of both CSVs confirms meal-plan info
+essentially doesn't exist in this data (Bangalore budget/mid-scale hotels
+almost never bundle meals). The coverage numbers are honest: many rooms are
+named "Run of House", "Standard", "Deluxe" with no attribute details — the
+pipeline extracts what's there and doesn't fabricate the rest.
 
-The imbalance between matched (1,854), a_only (2,047), and b_only (15,440) is expected: Supplier B has ~4× more room entries per hotel and lists rooms for nearly all its hotels; Supplier A has rooms for a much smaller subset.
+Only 1,711 of 19,484 canonical rooms (8.8%) ended up `matched`. That's a real
+consequence of the underlying data, not a matching defect — Supplier B lists
+~4.6 rooms/hotel on average against Supplier A's ~1.1, and a large share of
+Supplier B's per-hotel room list is a single generic "Run of House" entry
+with no real room-type detail to match against. Hand-checking hotels where
+both sides *do* list comparable room tiers (e.g. "Deluxe Double Room" /
+"Superior Double Room" / "Premium Double Room" present on both sides) shows
+the matcher correctly pairs each tier to its true counterpart via
+`max_weight_matching`, rather than cross-wiring tiers — see
+`test_rooms_matched_across_suppliers_within_cluster`.
 
 ### LLM adjudication of genuinely hard cases (optional, opt-in)
 
-The heuristic pipeline resolves 2,534 pairs at $0 with no LLM involvement.
-On top of that, `pipeline/llm_adjudicate.py` adds a **bounded, targeted**
-pass over the hardest residual near-misses — the ones where the geo+fuzzy
+The heuristic pipeline resolves 2,540 pairs at $0 with no LLM involvement. On
+top of that, `pipeline/llm_adjudicate.py` adds a **bounded, targeted** pass
+over the hardest residual near-misses — the ones where the geo+semantic
 scorer is closest to a coin flip:
 
 - **Selection**: near-miss pairs with `geo_score ≥ 0.45` (physically
   plausible, ≲170 m) AND `0.30 ≤ name_score < 0.85` (ambiguous — not so low
   the heuristic is already confident it's a different hotel, not so high the
-  property-number veto's own escape hatch already resolves it). Capped at
-  200 pairs per run, prioritized by closeness to the 0.5 "coin flip" zone.
-- **Model**: `deepseek-chat` (DeepSeek's general model), chosen over a
-  frontier model specifically for cost — this is exactly the kind of
-  judgment call where a cheap model with the raw name/address/stars/distance
-  in front of it beats more string-matching cleverness, and the task
-  (binary same/different + short rationale) doesn't need a stronger model.
+  property-number veto's own escape hatch already resolves it), excluding
+  either side of a pair already claimed by a heuristic match. Capped at 200
+  pairs per run, prioritized by closeness to the 0.5 "coin flip" zone.
+- **Model**: `gpt-oss-120b` on Cerebras's free tier — chosen for cost; this
+  is exactly the kind of judgment call where a cheap model with the raw
+  name/address/stars/distance in front of it beats more string-matching
+  cleverness, and the task (binary same/different + short rationale) doesn't
+  need a stronger model.
 - **Batching**: 20 pairs per request to amortize the fixed prompt overhead.
-- **Caching**: every request/response is keyed by `(a_id, b_id)` and written
-  to `pipeline/cache/llm_adjudications.json`, which is committed. Re-running
-  the pipeline — or grading it without a key — reproduces byte-identical
-  output at $0; only genuinely new pairs would trigger a call.
-- **One-to-one**: LLM-confirmed matches go through the same greedy
-  highest-confidence-first assignment as the heuristic passes, so an LLM
-  call can't double-claim a hotel another pass already has, or that a
-  higher-confidence LLM verdict also wants.
+- **Caching**: every request/response is keyed by the pair and written to
+  `pipeline/cache/llm_adjudications.json`, which is committed. Re-running the
+  pipeline — or grading it without a key — reproduces the same output at $0;
+  only genuinely new pairs would trigger a call.
+- **One-to-one**: LLM-confirmed matches are folded into the existing
+  component graph (`apply_llm_matches`), so an LLM call can't double-claim a
+  hotel another pass already has, or that a higher-confidence LLM verdict
+  also wants — `test_adjudicate_one_to_one_among_llm_matches` and
+  `test_three_way_cluster_via_llm_promotion` pin this down.
 - **Fail-soft by design**: no key and no cache → the pipeline logs a message
   and continues at $0, identical to the baseline. A malformed/failed model
   response for a batch is skipped (logged), never crashes the pipeline or
   silently fabricates a match.
-- **Provenance**: an LLM-confirmed match is tagged `match_method: "llm"`
-  with `match_note` set to the model's one-line rationale, so it's
-  distinguishable from a `geo_fuzzy` or `rescue` match everywhere in the API
-  and in `canonical_hotels.json` — a reviewer can audit exactly which
-  matches came from a model call and why.
+- **Provenance**: an LLM-confirmed match is tagged `match_method: "llm"` with
+  `match_note` set to the model's one-line rationale, distinguishable from a
+  `geo_fuzzy` or `rescue` match everywhere in the API and in
+  `canonical_hotels.json`.
 
-**Honest status at submission time**: I did not have a DeepSeek key while
-building this, so the committed `canonical.db` reflects the $0 heuristic
-baseline only (`hotels_by_match_method`: 2,467 `geo_fuzzy` + 67 `rescue`,
-0 `llm`) — `GET /stats` shows `"llm_spend": null`. The mechanism is built,
-unit-tested (`tests/test_llm_adjudicate.py` — selection filtering, cache-hit
-behavior with zero network calls, one-to-one assignment among LLM matches,
-graceful no-key skip), and wired into `pipeline/run.py`; running
-`python -m pipeline.run --force` with `DEEPSEEK_API_KEY` set adjudicates the
-≤200 candidate pairs, caches the results, and updates `/stats` and this
-write-up's cost figure below accordingly. I'd rather report a truthful $0
-than fabricate a number I can't back with a real request log.
+**Actual run, this submission**: `CEREBRAS_API_KEY` was set for the committed
+build. 97 near-miss pairs were considered, all 97 required a fresh API call
+(no prior cache), and 15 were promoted to matches (`match_method: "llm"`,
+each with its rationale in `match_note`) — visible in `GET /stats` →
+`hotels_by_match_method.llm: 15` and `llm_spend`. Actual token usage:
+11,413 prompt / 17,685 completion tokens, **$0.00** at Cerebras's free-tier
+pricing. `pipeline/cache/llm_adjudications.json` and `llm_spend.json` are
+committed, so re-running the pipeline reproduces the same 15 promotions from
+cache without spending anything or needing a key.
+
+### What this trades away (and why it's still the right call)
+
+Switching hotel- and room-name similarity from RapidFuzz string matching to
+FastEmbed sentence embeddings buys real recall on semantic variants a string
+metric can't see (a legal name vs. a trade name, reordered words, a
+transliteration) — worthwhile for a matcher meant to generalize past exactly
+two known suppliers with exactly this dataset's naming quirks. It has a real
+cost: running Qdrant in its embedded, in-process mode (no server to stand
+up, so `docker compose up` needs nothing extra) means every geo-filtered
+candidate query is a brute-force scan rather than an indexed lookup. On
+7,171 hotels that's ~340 s of hotel matching and ~530 s end-to-end — a real
+regression from a pure-heuristic pass, which would run in under a second on
+this dataset size. This is a one-time, offline batch cost (the API never
+recomputes a match at request time, and `canonical.db` is committed so a
+grader doesn't have to re-run the pipeline at all to see the result) and
+still finishes in one `docker compose up`-free command, so the trade felt
+worth taking here; see "Scaling" below for what changes at real volume.
 
 ### What I discarded
 
-- **Bulk LLM matching over all candidates**: unnecessary for a geo+fuzzy signal that already achieves high precision on the overwhelming majority of pairs, and would cost far more than the targeted pass above for no real accuracy gain on the easy cases.
-- **Image perceptual hashing**: would require downloading ~37 k images from GCS; adding 10–15 min of network I/O for a marginal signal when geo+name is already working.
-- **Sentence-transformer name embeddings**: SBERT would improve recall on hard semantic cases ("The Leela Palace" ↔ "Leela Palace Bengaluru"), but the added complexity and latency (~30 s vs 0.4 s) wasn't worth it for this dataset size, especially once the LLM pass covers the same class of hard case with world knowledge a fixed embedding space wouldn't have anyway (rebrands, aggregator-prefix noise). Would reconsider at 200 k hotels, where the LLM pass's linear cost stops being negligible.
-- **Blocking by name prefix/soundex**: fragile with OTA brand noise ("OYO 12345 Hotel X" prefix is meaningless). Geo blocking is cleaner.
-- **Google Places enrichment**: good idea for genuinely ambiguous cases but bulk resolution misses the point; the LLM adjudication pass above ended up serving the same "targeted use on hard cases" role without needing a second external key.
-- **Re-weighting the core geo/name/stars scorer to add an address-similarity term**: the address field is loaded but unused directly. I deliberately didn't fold it into the validated scoring formula — reopening a formula that already passed its adversarial audit (see below) risks new false positives/negatives that are hard to re-validate in the time available. Instead, address text is handed to the LLM adjudication pass as extra context for exactly the pairs where it might tip a genuinely ambiguous call — upside without touching the proven path.
+- **Bulk LLM matching over all candidates**: unnecessary given the combined
+  embedding and geo scorer already achieves high precision on the
+  overwhelming majority of pairs, and would cost far more than the targeted
+  pass above for no real accuracy gain on the easy cases.
+- **Image perceptual hashing for hotel matching**: would require downloading
+  tens of thousands of images from GCS for a marginal signal when geo+name
+  is already working (it's still used, cheaply, for *photo de-duplication*
+  within an already-merged hotel — see `pipeline/image_dedupe.py`).
+- **A networked Qdrant server** (with a real HNSW payload index instead of
+  brute-force local scanning): would fix the ~9 minute pipeline runtime, but
+  adds a service `docker compose up` would need to provision and wait to be
+  healthy before the pipeline can run — for a take-home graded on
+  correctness and one-command reproducibility, the slower-but-dependency-free
+  embedded mode won out. Documented as the first thing to change at scale.
+- **Blocking by name prefix/soundex**: fragile with OTA brand noise ("OYO
+  12345 Hotel X" prefix is meaningless). Geo blocking is cleaner.
+- **Google Places enrichment**: good idea for genuinely ambiguous cases but
+  bulk resolution misses the point; the LLM adjudication pass above serves
+  the same "targeted use on hard cases" role without a second external key.
+- **Re-weighting the core geo/name/stars scorer to add an address-similarity
+  term**: the address field is loaded but unused directly in scoring.
+  Address text is handed to the LLM adjudication pass as extra context for
+  exactly the pairs where it might tip a genuinely ambiguous call — upside
+  without reopening a scoring formula that already passed its own
+  adversarial audit.
 
 ### How I validated matching
 
-1. **Adversarial error audit**: queried every matched pair with confidence 0.55–0.75 and eyeballed name pairs sorted by name_score ascending. This surfaced the geography-only false-positive class ("OYO 2420 Ashwa Comfort" ↔ "Ample Inn") that motivated the MIN_NAME_SCORE guard-rail, and the disjoint-property-number class ("OYO 16455 Amazing Inn" ↔ "OYO 436 Emirates Suites") that motivated the veto. Re-ran the audit after the fix: zero remaining pairs with name_score < 0.45.
-2. **False-negative audit**: cross-checked a_only vs b_only hotels for near-exact name matches within 1 km — this motivated the rescue pass, which recovers real pairs beyond the 350 m cutoff.
-3. **Bed-conflict audit on rooms**: counted matched room pairs where extracting bed type separately from each side's name yields conflicting beds; the conflict veto reduced this to ~5 of 1,854 (residual cases come from amenity-level information).
-4. **Spot-checks at every confidence tier** plus anti-spot-checks (e.g. "Fortune Select JP Cosmos" matched to its true B-side counterpart, not a nearby unrelated Fortune Hotel).
-5. **Automated test suite**: 62 pytest tests encode these guarantees as regression tests — geo-only pair rejected, property-number veto, rescue pass, bed-conflict veto, one-to-one assignment, attribute extraction cases, near-miss provenance for a_only/b_only hotels, LLM adjudication selection/caching/one-to-one behavior, plus full API contract tests (`pytest tests/`).
-6. **Coverage sanity**: 2,534 matches from ~3,400 A hotels (~74 % match rate) is plausible — Bangalore has many small B-side-only properties (OYO budget hotels) without A-side coverage.
-7. **Near-miss audit found a real gap, not just a matching bug**: while adding LLM adjudication I noticed near-miss candidates were only ever attached to hotels that ended up `matched` — an `a_only`/`b_only` hotel (which is exactly the case where "why didn't this match?" matters most) silently showed zero near-misses even when the matcher had found one. Fixed to attach symmetrically; 618 of 875 `a_only` hotels (71%) and 961 of 1,228 `b_only` hotels (78%) now surface a real near-miss candidate instead of an empty list.
+1. **Adversarial error audit**: queried matched pairs with low confidence and
+   eyeballed name pairs. This is what motivated `MIN_NAME_SCORE` (a
+   geography-only false-positive class: co-located but unrelated hotel
+   names) and the property-number veto (disjoint OYO/property IDs).
+2. **False-negative audit**: cross-checked singleton hotels for near-exact
+   name matches within 1 km — this motivated the rescue pass.
+3. **Bed-conflict audit on rooms**: 0 of 1,711 matched room pairs carry
+   conflicting bed types.
+4. **Real-data spot-check on room matching**: hand-verified a hotel (see
+   `WRITEUP.md`'s room-matching section) where both suppliers list multiple
+   comparable room tiers, confirming `max_weight_matching` pairs each tier
+   with its true counterpart rather than cross-wiring.
+5. **Automated test suite**: 62 pytest tests encode these guarantees as
+   regression tests — geo-only pair rejected, property-number veto, rescue
+   pass, bed-conflict veto, one-to-one assignment (including a 3-way cluster
+   formed via LLM promotion), attribute extraction cases, near-miss
+   provenance for singleton hotels, LLM adjudication selection/caching/
+   one-to-one behavior, plus full API contract tests (`pytest tests/`).
+6. **Coverage sanity**: 2,540 matches from 3,409 A hotels (~74% match rate)
+   is plausible — Bangalore has many small B-side-only properties (OYO
+   budget hotels) without A-side coverage.
+7. **Near-miss coverage**: near-misses are attached to every hotel with a
+   plausible-but-rejected candidate, not only to hotels that ended up
+   matched. 1,470 of 2,091 (70.3%) singleton hotels surface a real near-miss
+   candidate — exactly the case ("why didn't this match?") a reviewer most
+   wants visibility into.
 
 ### Total API spend
 
-**$0.00 as submitted.** The core pipeline (geo-blocking, fuzzy name scoring, rescue pass, room matching, attribute extraction) makes zero external calls — every one of the 2,534 matches in the committed `canonical.db` is pure local computation.
-
-An optional, opt-in DeepSeek adjudication pass exists (`pipeline/llm_adjudicate.py`) for the ≤200 hardest near-miss pairs, but I did not have a DeepSeek key while building this, so it has never actually run — `GET /stats` → `"llm_spend": null` confirms this truthfully rather than reporting an estimate as fact. If run, the cost is small and bounded by construction: ≤200 pairs batched 20-per-request (≤10 requests), each request ~500–900 prompt tokens and ~200–400 completion tokens depending on batch fill, against `deepseek-chat` pricing (~$0.27/1M input, ~$1.10/1M output tokens at cache-miss rates, verify current pricing before trusting this figure on a re-run) — a back-of-envelope upper bound is **under $0.01 for the whole run**, and every subsequent run costs $0 for the same pairs because responses are cached in `pipeline/cache/llm_adjudications.json`. The exact figure, once run, is computed from real `usage` token counts (not estimated) and persisted in `pipeline/cache/llm_spend.json`, surfaced live at `GET /stats`.
+**$0.00 for this submission.** The core pipeline (semantic hotel matching,
+geo scoring, rescue pass, room matching, attribute extraction) makes zero
+external calls. The optional Cerebras adjudication pass did run for this
+build (97 pairs, 15 promoted) and cost $0.00 because Cerebras's free tier
+covers `gpt-oss-120b` at zero price per token — the real usage
+(11,413 prompt + 17,685 completion tokens) is in
+`pipeline/cache/llm_spend.json` and surfaced live at `GET /stats`, not
+estimated.
 
 ---
 
@@ -136,16 +252,19 @@ At this scale the current design breaks in several places:
 
 | Bottleneck | Current solution | Fix at scale |
 |------------|-----------------|-------------|
-| Geo-blocking dict in Python memory | 0.005° grid, dict of lists | **PostGIS** `ST_DWithin` with a spatial index; runs as a DB join instead of Python iteration |
-| Pairwise fuzzy scoring (~300 k pairs) | RapidFuzz in a single process | **Parallelize** over hotel grid cells with `multiprocessing.Pool`; or shard by city |
-| Name-only blocking misses semantic variants | token_set_ratio | Add **ANN lookup over SBERT embeddings** (FAISS); run only for pairs that pass geo-blocking but have low name_score |
+| Brute-force vector search (embedded, in-process Qdrant) | Linear scan per hotel query, ~340 s for 7 k hotels | A **networked Qdrant (or pgvector) server with a real HNSW index** — sub-linear candidate lookup, the difference between minutes and hours at 200k |
+| Geo filtering done inside the vector query | Geo-radius filter per query, no spatial index in local mode | **PostGIS** `ST_DWithin` with a spatial index, or a proper geo payload index on a real Qdrant server |
+| Room/hotel graph construction & matching in one Python process | `networkx` in memory | **Parallelize** by geographic shard (city/region) — matching only ever needs candidates within ~1.5 km, so shards are independent |
 | SQLite | Fine for single-node read | **PostgreSQL** with JSONB columns + `pg_trgm` for name similarity; FTS via `tsvector` |
-| canonical.db as a file | ~10 MB for 4 k hotels | Would be ~500 MB for 200 k × 3; split into partitioned tables, serve from a read replica |
+| canonical.db as a file | ~23 MB for 4.6 k hotels | Would be ~1 GB+ for 200k × 3; split into partitioned tables, serve from a read replica |
 | Pipeline is batch (not streaming) | Single Python process | Move to **Apache Beam / Spark** for parallel processing; incremental update when a supplier sends a delta feed |
-| Near-miss storage | 35.5 k rows for ~4.6 k hotels (capped at top-10/hotel) | ~1.5 M rows for 200 k hotels — still fine in Postgres at the same per-hotel cap |
-| 3 suppliers instead of 2 | A vs B pairwise | Run A↔B, A↔C, B↔C in parallel; build a union-find structure to merge transitive matches (A matches B and B matches C → merge all three) |
-| LLM adjudication cap (≤200 pairs/run) | Fine — a few hundred genuinely ambiguous pairs out of ~4.6 k hotels | At 200 k hotels the ambiguous residue scales roughly linearly (~tens of thousands of pairs); the per-run cap would need to become a per-region or per-priority budget, not a single global constant, or cost stops being negligible |
-| In-memory rate limiter / request log | Fine for one process | Doesn't share state across instances — move to a shared store (Redis) or an edge-level limiter (API gateway) once running more than one API replica |
+| Near-miss storage | 26.5 k rows for 4.6 k hotels | Scales roughly linearly — still fine in Postgres, cap near-misses per hotel if it grows unbounded |
+| N-way merging beyond pairs | `max_weight_matching` gives pairs; a 3-way real match needs two rounds (heuristic pair + LLM-promoted third) | A proper **union-find over all accepted edges**, or iterative matching rounds, so an N-way cluster forms in one pass instead of relying on LLM promotion to bridge it |
+| LLM adjudication cap (≤200 pairs/run) | Fine — a few hundred genuinely ambiguous pairs out of ~4.6 k hotels | At 200k hotels the ambiguous residue scales roughly linearly (tens of thousands of pairs); the per-run cap would need to become a per-region or per-priority budget, not a single global constant |
+| In-memory rate limiter / request log | Fine for one process | Move to a shared store (Redis) or an edge-level limiter (API gateway) once running more than one API replica |
 | SQLite WAL, per-request connection | Fine for single-node read replicas | Postgres connection pooling (pgbouncer) once concurrent write/read separation matters |
 
-The first thing to break is the Python-dict geo-blocking: at 600 k hotels, loading and iterating the dict consumes ~2 GB RAM and takes minutes. Migrating to PostGIS solves both issues.
+The first thing to break is the embedded vector search: at 200k hotels,
+brute-force geo-filtered similarity search over the full collection for
+every hotel would take hours, not minutes. Migrating to a real indexed
+vector store (or PostGIS + `pg_trgm`) solves that directly.

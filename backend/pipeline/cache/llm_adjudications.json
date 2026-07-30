@@ -1,0 +1,487 @@
+{
+  "supplier_a::A-24396::supplier_b::B-33822": {
+    "same_hotel": false,
+    "confidence": 0.95,
+    "reason": "Different names and distinct addresses."
+  },
+  "supplier_a::A-41437::supplier_b::B-07009": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Distinct names and far‑apart locations."
+  },
+  "supplier_a::A-04030::supplier_b::B-01666": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different names, villages; not same address."
+  },
+  "supplier_a::A-23525::supplier_b::B-17165": {
+    "same_hotel": true,
+    "confidence": 0.97,
+    "reason": "Identical address, same Treebo brand."
+  },
+  "supplier_a::A-09293::supplier_b::B-37720": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Different names and locations."
+  },
+  "supplier_a::A-51105::supplier_b::B-41644": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different names, addresses; not co‑located."
+  },
+  "supplier_a::A-18795::supplier_b::B-88573": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different names, locations; no match."
+  },
+  "supplier_a::A-23525::supplier_b::B-90915": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Different brands and addresses."
+  },
+  "supplier_a::A-76784::supplier_b::B-54986": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different names and addresses."
+  },
+  "supplier_a::A-25926::supplier_b::B-80456": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different names, mismatched address details."
+  },
+  "supplier_a::A-69183::supplier_b::B-01059": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Different names, addresses far apart."
+  },
+  "supplier_a::A-77230::supplier_b::B-50611": {
+    "same_hotel": true,
+    "confidence": 0.94,
+    "reason": "Same Guesture brand, identical location."
+  },
+  "supplier_a::A-35314::supplier_b::B-40861": {
+    "same_hotel": true,
+    "confidence": 0.93,
+    "reason": "Same GK Arcade location, brand variation."
+  },
+  "supplier_a::A-94927::supplier_b::B-25965": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Both FabHotel but distinct property names."
+  },
+  "supplier_a::A-92994::supplier_b::B-86807": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different names, nearby but separate streets."
+  },
+  "supplier_a::A-41321::supplier_b::B-52283": {
+    "same_hotel": true,
+    "confidence": 0.96,
+    "reason": "Same 'La Prosperite' name, same area, rebranded."
+  },
+  "supplier_a::A-16455::supplier_b::B-01383": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Same block but different property names."
+  },
+  "supplier_a::A-66122::supplier_b::B-41325": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different names, locations."
+  },
+  "supplier_a::A-48736::supplier_b::B-23873": {
+    "same_hotel": false,
+    "confidence": 0.7,
+    "reason": "Nearby area but different addresses."
+  },
+  "supplier_a::A-90802::supplier_b::B-45514": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different names, 50 m apart."
+  },
+  "supplier_a::A-01781::supplier_b::B-67097": {
+    "same_hotel": true,
+    "confidence": 0.85,
+    "reason": "Same number, layout, postal code; OYO prefix suggests rebrand."
+  },
+  "supplier_a::A-55386::supplier_b::B-84316": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different names, likely separate hotels despite same block."
+  },
+  "supplier_a::A-64678::supplier_b::B-23873": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Distinct building names; likely different OYO properties."
+  },
+  "supplier_a::A-43571::supplier_b::B-50834": {
+    "same_hotel": true,
+    "confidence": 0.9,
+    "reason": "Identical address number and cross road; same Wandr brand."
+  },
+  "supplier_a::A-28021::supplier_b::B-28518": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different property names; no clear link."
+  },
+  "supplier_a::A-02656::supplier_b::B-07516": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Different lodge names; likely separate properties."
+  },
+  "supplier_a::A-94514::supplier_b::B-08066": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different streets within Kammanahalli; distinct hotels."
+  },
+  "supplier_a::A-55386::supplier_b::B-13120": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different names in same block; separate hotels."
+  },
+  "supplier_a::A-93482::supplier_b::B-09781": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Different hotel names on Airport Road; likely distinct."
+  },
+  "supplier_a::A-30243::supplier_b::B-26451": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Adjacent plots with different OYO IDs; separate hotels."
+  },
+  "supplier_a::A-36138::supplier_b::B-39090": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different names in Konappana Agrahara; likely distinct."
+  },
+  "supplier_a::A-83105::supplier_b::B-70784": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different OYO IDs and locations; separate properties."
+  },
+  "supplier_a::A-96748::supplier_b::B-25253": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different street names; distinct hotels."
+  },
+  "supplier_a::A-35961::supplier_b::B-01699": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Different brand names; likely separate properties."
+  },
+  "supplier_a::A-40128::supplier_b::B-23873": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Different building names; separate hotels."
+  },
+  "supplier_a::A-81527::supplier_b::B-96087": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different hotel names near railway; distinct."
+  },
+  "supplier_a::A-94500::supplier_b::B-16638": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different brand names; likely separate."
+  },
+  "supplier_a::A-95845::supplier_b::B-72367": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different streets and names; separate hotels."
+  },
+  "supplier_a::A-03756::supplier_b::B-52666": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different names and streets; distinct."
+  },
+  "supplier_a::A-26135::supplier_b::B-62577": {
+    "same_hotel": true,
+    "confidence": 0.6,
+    "reason": "Same layout and plot; OYO vs Guesthouse suggests same property."
+  },
+  "supplier_a::A-54134::supplier_b::B-58583": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different brand names, no shared identifiers; likely separate hotels."
+  },
+  "supplier_a::A-97623::supplier_b::B-46585": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Distinct names, no brand link; separate properties in Manyata area."
+  },
+  "supplier_a::A-79282::supplier_b::B-74452": {
+    "same_hotel": false,
+    "confidence": 0.7,
+    "reason": "Different names, no brand connection; likely distinct hotels."
+  },
+  "supplier_a::A-19136::supplier_b::B-57437": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Addresses in different neighborhoods; unrelated properties."
+  },
+  "supplier_a::A-76286::supplier_b::B-58583": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Names differ, no brand overlap; separate hotels near airport."
+  },
+  "supplier_a::A-37212::supplier_b::B-72165": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Diamond Palace vs FabHotel brand; distinct establishments."
+  },
+  "supplier_a::A-26940::supplier_b::B-84185": {
+    "same_hotel": false,
+    "confidence": 0.7,
+    "reason": "Different hotel brands, separate listings in Manyata Tech Park."
+  },
+  "supplier_a::A-79711::supplier_b::B-22726": {
+    "same_hotel": false,
+    "confidence": 0.65,
+    "reason": "Both Treebo but different sub‑brands; likely separate properties."
+  },
+  "supplier_a::A-23099::supplier_b::B-19719": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Separate hotel names on Crescent Road; distinct properties."
+  },
+  "supplier_a::A-55931::supplier_b::B-17047": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Via Broad Way Inn vs Treebo; different brands, separate hotels."
+  },
+  "supplier_a::A-85466::supplier_b::B-87660": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different hotel names, separate listings in Gandhi Nagar."
+  },
+  "supplier_a::A-54935::supplier_b::B-90937": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Different brand names near Domlur; likely distinct hotels."
+  },
+  "supplier_a::A-47283::supplier_b::B-45514": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Distinct names, separate listings in Yelahanka area."
+  },
+  "supplier_a::A-97649::supplier_b::B-28518": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different brands and streets; separate hotels."
+  },
+  "supplier_a::A-24965::supplier_b::B-14931": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "FabHotel vs Even Suites; distinct properties in KHB Colony."
+  },
+  "supplier_a::A-21571::supplier_b::B-68575": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different hotel names in same area; likely separate."
+  },
+  "supplier_a::A-21175::supplier_b::B-08171": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different sub‑areas and brands in Koramangala; separate hotels."
+  },
+  "supplier_a::A-81159::supplier_b::B-65087": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Different locations (Koramangala vs Hosur Rd); distinct hotels."
+  },
+  "supplier_a::A-87672::supplier_b::B-72021": {
+    "same_hotel": false,
+    "confidence": 1.0,
+    "reason": "Different cities (Bangalore vs Mysore); definitely different."
+  },
+  "supplier_a::A-64438::supplier_b::B-02736": {
+    "same_hotel": true,
+    "confidence": 0.6,
+    "reason": "Both in NGV 6th Block; likely same property rebranded."
+  },
+  "supplier_a::A-95845::supplier_b::B-09301": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different brand names and star rating; addresses similar but distinct property."
+  },
+  "supplier_a::A-16593::supplier_b::B-28153": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Names share 'Residency' but different streets and no brand link."
+  },
+  "supplier_a::A-03109::supplier_b::B-96553": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Distinct locations and names; unlikely same hotel."
+  },
+  "supplier_a::A-43571::supplier_b::B-31331": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different names and star ratings; same area but separate properties."
+  },
+  "supplier_a::A-21295::supplier_b::B-91911": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Brookfield area but different roads and names; likely separate."
+  },
+  "supplier_a::A-11534::supplier_b::B-05810": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Whitefield area, different streets and names; not same."
+  },
+  "supplier_a::A-79711::supplier_b::B-97835": {
+    "same_hotel": true,
+    "confidence": 0.75,
+    "reason": "Very close address, similar 'Elite' name, likely same property rebranded."
+  },
+  "supplier_a::A-49475::supplier_b::B-55401": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Different neighborhoods and names; separate hotels."
+  },
+  "supplier_a::A-76919::supplier_b::B-83219": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different areas (BTM vs JP Nagar) and names; not same."
+  },
+  "supplier_a::A-16593::supplier_b::B-14931": {
+    "same_hotel": false,
+    "confidence": 0.7,
+    "reason": "Same block but different address numbers and brand; likely different."
+  },
+  "supplier_a::A-16455::supplier_b::B-17165": {
+    "same_hotel": true,
+    "confidence": 0.7,
+    "reason": "Close HBR Layout addresses, similar star rating; probably same hotel."
+  },
+  "supplier_a::A-57650::supplier_b::B-01699": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Sarjapur area but different streets and names; separate."
+  },
+  "supplier_a::A-92835::supplier_b::B-05810": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Whitefield area, different streets and brands; not same."
+  },
+  "supplier_a::A-51641::supplier_b::B-29610": {
+    "same_hotel": true,
+    "confidence": 0.65,
+    "reason": "Same SC Road, similar location; likely same property rebranded."
+  },
+  "supplier_a::A-76919::supplier_b::B-82942": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Different neighborhoods; not same hotel."
+  },
+  "supplier_a::A-17084::supplier_b::B-58583": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Airport vicinity but distinct addresses and brands; separate."
+  },
+  "supplier_a::A-95845::supplier_b::B-28072": {
+    "same_hotel": true,
+    "confidence": 0.7,
+    "reason": "Same block, close addresses, different brands; likely same hotel."
+  },
+  "supplier_a::A-92314::supplier_b::B-58583": {
+    "same_hotel": false,
+    "confidence": 0.9,
+    "reason": "Taj luxury vs SM Royal stay; different brands and stars."
+  },
+  "supplier_a::A-43100::supplier_b::B-86994": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Same block but different brands and addresses; likely different."
+  },
+  "supplier_a::A-64934::supplier_b::B-81188": {
+    "same_hotel": true,
+    "confidence": 0.6,
+    "reason": "Same road, similar location; probable same property rebranded."
+  },
+  "supplier_a::A-59205::supplier_b::B-16557": {
+    "same_hotel": false,
+    "confidence": 0.95,
+    "reason": "Distinct names, brands, and streets."
+  },
+  "supplier_a::A-10072::supplier_b::B-85980": {
+    "same_hotel": false,
+    "confidence": 0.85,
+    "reason": "Different names and address details."
+  },
+  "supplier_a::A-03922::supplier_b::B-89094": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Nearby but distinct hotel names and star rating."
+  },
+  "supplier_a::A-44147::supplier_b::B-45683": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Different brand names, similar area but not same property."
+  },
+  "supplier_a::A-83784::supplier_b::B-93859": {
+    "same_hotel": true,
+    "confidence": 0.92,
+    "reason": "Identical street number and road indicate same building."
+  },
+  "supplier_a::A-54935::supplier_b::B-98456": {
+    "same_hotel": false,
+    "confidence": 0.78,
+    "reason": "Addresses differ despite proximity."
+  },
+  "supplier_a::A-31351::supplier_b::B-17453": {
+    "same_hotel": false,
+    "confidence": 0.8,
+    "reason": "Separate property names within same layout."
+  },
+  "supplier_a::A-05799::supplier_b::B-87312": {
+    "same_hotel": false,
+    "confidence": 0.75,
+    "reason": "Different hotel names on same road, likely distinct."
+  },
+  "supplier_a::A-72434::supplier_b::B-93608": {
+    "same_hotel": false,
+    "confidence": 0.95,
+    "reason": "Different neighborhoods and brand names."
+  },
+  "supplier_a::A-19136::supplier_b::B-93608": {
+    "same_hotel": false,
+    "confidence": 0.95,
+    "reason": "Distinct locations and names."
+  },
+  "supplier_a::A-48812::supplier_b::B-55778": {
+    "same_hotel": true,
+    "confidence": 0.9,
+    "reason": "Same cross street and PIN, likely rebranded."
+  },
+  "supplier_a::A-40057::supplier_b::B-93859": {
+    "same_hotel": true,
+    "confidence": 0.93,
+    "reason": "Exact same street number matches Treebo brand."
+  },
+  "supplier_a::A-26940::supplier_b::B-36338": {
+    "same_hotel": true,
+    "confidence": 0.85,
+    "reason": "Same locality and PIN, names suggest rebrand."
+  },
+  "supplier_a::A-26940::supplier_b::B-34083": {
+    "same_hotel": false,
+    "confidence": 0.95,
+    "reason": "Different PINs indicate separate hotels."
+  },
+  "supplier_a::A-84147::supplier_b::B-15861": {
+    "same_hotel": false,
+    "confidence": 0.78,
+    "reason": "Nearby but distinct property names."
+  },
+  "supplier_a::A-65035::supplier_b::B-47453": {
+    "same_hotel": false,
+    "confidence": 0.95,
+    "reason": "Different areas and address details."
+  },
+  "supplier_a::A-93857::supplier_b::B-91911": {
+    "same_hotel": false,
+    "confidence": 0.78,
+    "reason": "Different street names despite same PIN."
+  }
+}

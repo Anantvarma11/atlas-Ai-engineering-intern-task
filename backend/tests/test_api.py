@@ -81,9 +81,10 @@ def test_hotel_detail_contract():
                 "image_urls", "match_status", "match_confidence",
                 "sources", "rooms", "near_misses"]:
         assert key in d, f"missing {key}"
-    # Matched hotel must carry both verbatim source records
-    assert d["sources"]["supplier_a"] is not None
-    assert d["sources"]["supplier_b"] is not None
+    # Matched hotel must carry verbatim source records for each supplier it came from
+    assert len(d["sources"]) >= 2
+    for src in d["sources"].values():
+        assert src is not None
     # Room contract
     for room in d["rooms"]:
         for key in ["id", "name", "bed_type", "occupancy", "meal_plan", "view",
@@ -92,18 +93,18 @@ def test_hotel_detail_contract():
         assert 0.0 <= room["match_confidence"] <= 1.0
     assert d["match_method"] in {"geo_fuzzy", "rescue", "llm"}
     for nm in d["near_misses"]:
-        assert nm["supplier"] in ("a", "b")
+        assert "supplier" in nm
         assert "supplier_id" in nm
 
 
 def test_near_miss_present_for_a_singleton_hotel():
-    """a_only/b_only hotels can have a live near-miss candidate — this used
+    """Singleton hotels can have a live near-miss candidate — this used
     to be silently dropped for anything but a matched hotel."""
-    r = client.get("/hotels", params={"match_status": "a_only", "limit": 200})
+    r = client.get("/hotels", params={"match_status": "singleton", "limit": 200})
     singleton_ids = [h["id"] for h in r.json()["hotels"]]
     assert any(
         client.get(f"/hotels/{hid}").json()["near_misses"] for hid in singleton_ids
-    ), "expected at least one a_only hotel with a near-miss candidate"
+    ), "expected at least one singleton hotel with a near-miss candidate"
 
 
 def test_hotel_404():

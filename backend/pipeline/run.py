@@ -19,7 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import pandas as pd
 
-# Load a local .env file (if present) so DEEPSEEK_API_KEY etc. don't need to
+# Load a local .env file (if present) so CEREBRAS_API_KEY etc. don't need to
 # be exported manually. Optional dependency — degrades silently if missing.
 try:
     from dotenv import load_dotenv
@@ -30,10 +30,10 @@ except ImportError:
 
 from pipeline.load import load_hotels, load_rooms
 from pipeline.llm_adjudicate import adjudicate_hard_cases
-from pipeline.match_hotels import match_hotels
+from pipeline.match_hotels import apply_llm_matches, match_hotels
 from pipeline.merge import DB_PATH, JSON_PATH, build_canonical
 
-DATA_DIR = PROJECT_ROOT
+DATA_DIR = PROJECT_ROOT / "data"
 
 
 def main() -> None:
@@ -53,36 +53,49 @@ def main() -> None:
 
     # ── Load ───────────────────────────────────────────────────────────────────
     print("[pipeline] Loading supplier CSVs …")
-    df_a    = load_hotels(DATA_DIR / "supplier_a.csv")
-    df_b    = load_hotels(DATA_DIR / "supplier_b.csv")
-    rooms_a = load_rooms(DATA_DIR  / "rooms_a.csv")
-    rooms_b = load_rooms(DATA_DIR  / "rooms_b.csv")
-    print(
-        f"[pipeline]   supplier_a: {len(df_a):,} hotels  "
-        f"| supplier_b: {len(df_b):,} hotels  "
-        f"| rooms_a: {len(rooms_a):,}  "
-        f"| rooms_b: {len(rooms_b):,}"
-    )
+    hotel_dfs = {}
+    room_dfs = {}
+    
+    for csv_file in DATA_DIR.glob("*_hotels.csv"):
+        supp = csv_file.name.replace("_hotels.csv", "")
+        df = load_hotels(csv_file)
+        hotel_dfs[supp] = df
+        print(f"[pipeline]   {supp}: {len(df):,} hotels")
+        
+    for csv_file in DATA_DIR.glob("*_rooms.csv"):
+        supp = csv_file.name.replace("_rooms.csv", "")
+        df = load_rooms(csv_file)
+        room_dfs[supp] = df
+        print(f"[pipeline]   {supp} rooms: {len(df):,}")
+
+    if not hotel_dfs:
+        print("[pipeline] No *_hotels.csv files found in data directory.")
+        return
 
     # ── Match hotels ───────────────────────────────────────────────────────────
-    print("[pipeline] Running hotel entity-resolution …")
+    print("[pipeline] Running N-way hotel entity-resolution …")
     t1 = time.perf_counter()
-    matches_df, near_misses_df = match_hotels(df_a, df_b)
+    components, near_misses_df = match_hotels(hotel_dfs)
     t2 = time.perf_counter()
     print(
-        f"[pipeline]   {len(matches_df):,} matched pairs  "
-        f"| {len(near_misses_df):,} near-miss pairs  "
+        f"[pipeline]   {len(components):,} canonical clusters identified  "
+        f"| {len(near_misses_df):,} near-miss edges  "
         f"(took {t2 - t1:.1f}s)"
     )
 
     # ── Optional LLM adjudication of the hardest remaining near-misses ────────
-    # Fully opt-in: no-ops at $0 unless DEEPSEEK_API_KEY is set or a cache of
+    # Fully opt-in: no-ops at $0 unless CEREBRAS_API_KEY is set or a cache of
     # previous adjudications already exists. See pipeline/llm_adjudicate.py.
-    matched_a_ids = set(matches_df["a_id"]) if not matches_df.empty else set()
-    matched_b_ids = set(matches_df["b_id"]) if not matches_df.empty else set()
-    llm_matches_df, llm_report = adjudicate_hard_cases(
-        df_a, df_b, near_misses_df, matched_a_ids, matched_b_ids
-    )
+    matched_nodes = {
+        f"{n['supplier']}::{n['id']}"
+        for comp in components if len(comp["nodes"]) > 1
+        for n in comp["nodes"]
+    }
+    hotels_indexed = {
+        supp: {row["id"]: row for _, row in df.iterrows()}
+        for supp, df in hotel_dfs.items()
+    }
+    llm_matches_df, llm_report = adjudicate_hard_cases(near_misses_df, hotels_indexed, matched_nodes)
     if llm_report["pairs_considered"]:
         print(
             f"[pipeline] LLM adjudication: {llm_report['pairs_considered']} hard case(s) considered, "
@@ -91,24 +104,19 @@ def main() -> None:
             f"${llm_report['cost_usd_this_run']:.6f} spent this run"
         )
     if not llm_matches_df.empty:
-        matches_df = pd.concat([matches_df, llm_matches_df], ignore_index=True)
-        newly_matched_a = set(llm_matches_df["a_id"])
-        newly_matched_b = set(llm_matches_df["b_id"])
-        if not near_misses_df.empty:
-            # Drop near-miss rows for pairs the LLM just promoted to matches,
-            # and any other near-miss involving a now-claimed hotel, so the
-            # API doesn't show a hotel as both matched and a live near-miss.
-            near_misses_df = near_misses_df[
-                ~near_misses_df["a_id"].isin(newly_matched_a)
-                & ~near_misses_df["b_id"].isin(newly_matched_b)
-            ]
+        components = apply_llm_matches(components, llm_matches_df)
+        promoted = set(zip(llm_matches_df["a_id"], llm_matches_df["b_id"]))
+        near_misses_df = near_misses_df[
+            ~near_misses_df.apply(lambda r: (r["a_id"], r["b_id"]) in promoted, axis=1)
+        ]
 
     # ── Merge + persist ────────────────────────────────────────────────────────
     print("[pipeline] Building canonical records and writing DB …")
     n_hotels, n_rooms, n_nm = build_canonical(
-        df_a, df_b,
-        matches_df, near_misses_df,
-        rooms_a, rooms_b,
+        hotel_dfs,
+        room_dfs,
+        components,
+        near_misses_df,
         db_path=DB_PATH,
         json_path=JSON_PATH,
     )

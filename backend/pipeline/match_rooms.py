@@ -16,12 +16,14 @@ Approach
    smoking) from both the room name AND the amenities string — Supplier A
    often buries "Queen Bed" or "3 Adults" in amenities, not the name.
 
-2. Within each matched hotel pair, compute pairwise token_set_ratio on
-   room names and do a greedy one-to-one assignment for scores ≥
-   ROOM_MATCH_THRESHOLD.
+2. Within each canonical hotel cluster, embed room names (FastEmbed, in
+   memory) and run `networkx.max_weight_matching` across suppliers for a
+   one-to-one assignment — the same shape of problem as hotel matching,
+   minus the geo signal, with a bed-type conflict veto in place of the
+   property-number veto.
 
-3. Rooms that don't find a partner (a_only / b_only) are kept as-is;
-   callers can still show them on a hotel page.
+3. Rooms that don't find a partner are kept as their own singleton
+   canonical room; callers can still show them on a hotel page.
 
 Cost: $0.
 """
@@ -29,7 +31,6 @@ Cost: $0.
 import re
 
 import pandas as pd
-from rapidfuzz import fuzz
 
 ROOM_MATCH_THRESHOLD = 0.55  # token_set_ratio / 100 ≥ this → matched
 
@@ -180,88 +181,107 @@ def extract_occupancy(name: str, amenities: list[str] | None = None) -> str | No
     return None
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Room matching for a single hotel pair
-# ──────────────────────────────────────────────────────────────────────────────
+import uuid
 
-def match_rooms_for_hotel(
-    rooms_a: pd.DataFrame,
-    rooms_b: pd.DataFrame,
-) -> tuple[list[dict], list, list]:
+import networkx as nx
+from qdrant_client import QdrantClient
+
+# FastEmbed automatically loads BAAI/bge-small-en-v1.5 and caches it. A single
+# in-memory client is reused across hotels to avoid reloading the model; each
+# call gets its own throwaway collection (see match_rooms_for_hotel).
+_qclient = QdrantClient(":memory:")
+
+ROOM_MATCH_THRESHOLD = 0.55  # minimum stretched semantic similarity → matched
+
+# FastEmbed cosine similarity for room names is compressed into a narrow band
+# (unrelated names still score ~0.7-0.8) — stretch it back to 0-1 so the
+# threshold above stays meaningful.
+_SIM_FLOOR = 0.75
+_SIM_SPAN = 0.25
+
+
+def _bed_of(name: str, amenities: list[str] | None) -> str | None:
+    return extract_attrs(name, amenities)["bed_type"]
+
+
+def match_rooms_for_hotel(room_dfs: dict[str, pd.DataFrame]) -> list[dict]:
     """
-    Align rooms between two suppliers for one matched hotel pair.
+    Match rooms across any number of suppliers for a single canonical hotel
+    cluster.
 
     Parameters
     ----------
-    rooms_a, rooms_b : DataFrames with columns [hotel_id, room_id, name, amenities]
+    room_dfs : {supplier_name: DataFrame} with columns
+               [hotel_id, room_id, name, amenities], already filtered down to
+               the rooms belonging to this one hotel cluster.
 
     Returns
     -------
-    matched        : list of dicts {room_a_id, room_b_id, name_a, name_b,
-                                    amenities_a, amenities_b, match_confidence}
-    unmatched_a    : list of room_id strings from A with no counterpart in B
-    unmatched_b    : list of room_id strings from B with no counterpart in A
+    components : list of clusters, each
+        {"nodes": [{"supplier", "room_id", "name", "amenities"}, ...],
+         "confidence": float,
+         "method": "matched" | "singleton"}
+        Every cluster has at most one room per supplier (one-to-one
+        assignment via max-weight matching, mirroring match_hotels).
     """
-    if rooms_a.empty and rooms_b.empty:
-        return [], [], []
+    nodes: list[dict] = []
+    for supp, df in room_dfs.items():
+        for row in df.itertuples(index=False):
+            nodes.append({
+                "supplier": supp,
+                "room_id": row.room_id,
+                "name": row.name,
+                "amenities": list(row.amenities) if row.amenities is not None else [],
+            })
 
-    if rooms_a.empty:
-        return [], [], list(rooms_b["room_id"])
+    if not nodes:
+        return []
 
-    if rooms_b.empty:
-        return [], list(rooms_a["room_id"]), []
+    docs = [_normalize_room_name(n["name"]) for n in nodes]
+    beds = [_bed_of(n["name"], n["amenities"]) for n in nodes]
 
-    # Pre-extract bed types once (name + amenities) for conflict detection
-    def _bed_of(row) -> str | None:
-        return extract_attrs(row.name, list(row.amenities) if row.amenities is not None else [])["bed_type"]
+    col_name = f"rooms_{uuid.uuid4().hex}"
+    _qclient.add(collection_name=col_name, documents=docs, ids=list(range(len(nodes))))
 
-    beds_a = {ra.room_id: _bed_of(ra) for ra in rooms_a.itertuples(index=False)}
-    beds_b = {rb.room_id: _bed_of(rb) for rb in rooms_b.itertuples(index=False)}
+    G = nx.Graph()
+    G.add_nodes_from(range(len(nodes)))
 
-    # Compute all pairwise name-similarity scores on normalized names
-    norm_a = {ra.room_id: _normalize_room_name(ra.name) for ra in rooms_a.itertuples(index=False)}
-    norm_b = {rb.room_id: _normalize_room_name(rb.name) for rb in rooms_b.itertuples(index=False)}
-
-    scores: list[tuple[float, str, str]] = []
-    for ra in rooms_a.itertuples(index=False):
-        for rb in rooms_b.itertuples(index=False):
-            s = fuzz.token_set_ratio(norm_a[ra.room_id], norm_b[rb.room_id]) / 100.0
-            # Bed-type conflict veto: "Deluxe King" must not match "Deluxe Twin".
-            ba, bb = beds_a[ra.room_id], beds_b[rb.room_id]
-            if ba and bb and ba != bb:
+    for i, doc in enumerate(docs):
+        results = _qclient.query(collection_name=col_name, query_text=doc, limit=len(nodes))
+        for res in results:
+            j = res.id
+            if j == i or nodes[j]["supplier"] == nodes[i]["supplier"]:
                 continue
-            scores.append((s, ra.room_id, rb.room_id))
 
-    scores.sort(reverse=True)
+            s = max(0.0, (res.score - _SIM_FLOOR) / _SIM_SPAN)
+            if s < ROOM_MATCH_THRESHOLD:
+                continue
 
-    matched_a_ids: set[str] = set()
-    matched_b_ids: set[str] = set()
-    matched: list[dict] = []
+            # Bed-type conflict veto: "Deluxe King" must not match "Deluxe Twin".
+            if beds[i] and beds[j] and beds[i] != beds[j]:
+                continue
 
-    for score, a_rid, b_rid in scores:
-        if score < ROOM_MATCH_THRESHOLD:
-            break
-        if a_rid in matched_a_ids or b_rid in matched_b_ids:
-            continue
+            if G.has_edge(i, j) and G[i][j]["weight"] >= s:
+                continue
+            G.add_edge(i, j, weight=s)
 
-        ra_row = rooms_a[rooms_a["room_id"] == a_rid].iloc[0]
-        rb_row = rooms_b[rooms_b["room_id"] == b_rid].iloc[0]
+    _qclient.delete_collection(collection_name=col_name)
 
-        matched.append(
-            {
-                "room_a_id": a_rid,
-                "room_b_id": b_rid,
-                "name_a": ra_row["name"],
-                "name_b": rb_row["name"],
-                "amenities_a": ra_row["amenities"],
-                "amenities_b": rb_row["amenities"],
-                "match_confidence": round(score, 4),
-            }
-        )
-        matched_a_ids.add(a_rid)
-        matched_b_ids.add(b_rid)
+    matching = nx.max_weight_matching(G, maxcardinality=False)
 
-    unmatched_a = [rid for rid in rooms_a["room_id"] if rid not in matched_a_ids]
-    unmatched_b = [rid for rid in rooms_b["room_id"] if rid not in matched_b_ids]
+    components: list[dict] = []
+    clustered: set[int] = set()
+    for i, j in matching:
+        components.append({
+            "nodes": [nodes[i], nodes[j]],
+            "confidence": round(G[i][j]["weight"], 4),
+            "method": "matched",
+        })
+        clustered.add(i)
+        clustered.add(j)
 
-    return matched, unmatched_a, unmatched_b
+    for i in range(len(nodes)):
+        if i not in clustered:
+            components.append({"nodes": [nodes[i]], "confidence": 1.0, "method": "singleton"})
+
+    return components

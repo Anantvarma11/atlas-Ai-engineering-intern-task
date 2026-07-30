@@ -53,13 +53,14 @@ from api.models import (
     CanonicalRoom,
     HotelDetail,
     HotelListResponse,
-    HotelSources,
     HotelSummary,
     NearMiss,
     RawSupplierHotel,
     RawSupplierRoom,
 )
 from pipeline.llm_adjudicate import SPEND_LOG_PATH
+
+from api.routers import admin
 
 app = FastAPI(
     title="Away Hotels API",
@@ -70,6 +71,8 @@ app = FastAPI(
     ),
     version="1.0.0",
 )
+
+app.include_router(admin.router)
 
 # Comma-separated list, e.g. "https://app.example.com,https://admin.example.com".
 # Defaults to "*" (read-only GET API, no cookies/auth to leak) for the
@@ -250,9 +253,9 @@ def list_hotels(
     ),
     limit: int = Query(default=20, ge=1, le=200, description="Results per page"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
-    match_status: Literal["matched", "a_only", "b_only"] | None = Query(
+    match_status: Literal["matched", "singleton"] | None = Query(
         default=None,
-        description="Filter by match_status: matched | a_only | b_only",
+        description="Filter by match_status: matched | singleton",
     ),
     con: sqlite3.Connection = Depends(get_db),
 ):
@@ -285,8 +288,7 @@ def list_hotels(
             match_confidence=h["match_confidence"],
             match_method=h.get("match_method") or "singleton",
             match_note=h.get("match_note"),
-            supplier_a_id=h.get("supplier_a_id"),
-            supplier_b_id=h.get("supplier_b_id"),
+            source_ids=h.get("source_ids", {}),
         )
         for h in hotels
     ]
@@ -319,9 +321,8 @@ def get_hotel(
       honest about uncertainty.
 
     Match statuses
-    - `matched`  — hotel (or room) found in both suppliers
-    - `a_only`   — exists only in Supplier A
-    - `b_only`   — exists only in Supplier B
+    - `matched`  — hotel (or room) found in multiple suppliers
+    - `singleton` — exists in only one supplier
 
     **Example**
 
@@ -332,17 +333,37 @@ def get_hotel(
         raise HTTPException(status_code=404, detail=f"Hotel '{hotel_id}' not found")
 
     # ── Provenance: raw supplier records ──────────────────────────────────────
-    raw_a = get_raw_hotel(con, "a", hotel["supplier_a_id"]) if hotel.get("supplier_a_id") else None
-    raw_b = get_raw_hotel(con, "b", hotel["supplier_b_id"]) if hotel.get("supplier_b_id") else None
-
-    sources = HotelSources(
-        supplier_a=_raw_hotel_model(raw_a),
-        supplier_b=_raw_hotel_model(raw_b),
-    )
+    sources = {}
+    for supp, sid in hotel.get("source_ids", {}).items():
+        raw_rec = get_raw_hotel(con, supp, sid)
+        if raw_rec:
+            sources[supp] = _raw_hotel_model(raw_rec)
 
     # ── Rooms ─────────────────────────────────────────────────────────────────
     room_dicts = get_rooms_for_hotel(con, hotel_id)
-    rooms = [_room_model(r) for r in room_dicts]
+    
+    rooms = []
+    for d in room_dicts:
+        c = CanonicalRoom(
+            id=d["id"],
+            name=d.get("name") or "",
+            bed_type=d.get("bed_type"),
+            occupancy=d.get("occupancy"),
+            meal_plan=d.get("meal_plan") or "Room Only",
+            view=d.get("view"),
+            is_smoking=d.get("is_smoking"),
+            amenities=d.get("amenities", []),
+            match_status=d["match_status"],
+            match_confidence=d["match_confidence"],
+        )
+        for supp, s_dict in d.get("sources", {}).items():
+            if s_dict:
+                c.sources[supp] = RawSupplierRoom(
+                    id=s_dict["room_id"],
+                    name=s_dict.get("name") or "",
+                    amenities=s_dict.get("amenities", []),
+                )
+        rooms.append(c)
 
     # ── Near-misses ───────────────────────────────────────────────────────────
     nm_dicts = get_near_misses_for_hotel(con, hotel_id)
@@ -372,8 +393,7 @@ def get_hotel(
         match_confidence=hotel["match_confidence"],
         match_method=hotel.get("match_method") or "singleton",
         match_note=hotel.get("match_note"),
-        supplier_a_id=hotel.get("supplier_a_id"),
-        supplier_b_id=hotel.get("supplier_b_id"),
+        source_ids=hotel.get("source_ids", {}),
         sources=sources,
         rooms=rooms,
         near_misses=near_misses,

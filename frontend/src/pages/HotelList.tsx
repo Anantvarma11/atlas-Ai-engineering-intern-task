@@ -75,7 +75,7 @@ export function HotelList() {
     <div className="mx-auto max-w-6xl px-4 pb-20 pt-8 sm:px-6">
       <div className="mb-8 animate-fade-up">
         <h1 className="font-display text-3xl font-semibold text-ink-900 sm:text-4xl">
-          One record per hotel,<span className="text-ember-500"> stitched from two suppliers.</span>
+          One record per hotel,<span className="text-ember-500"> stitched from every supplier.</span>
         </h1>
         <p className="mt-2 max-w-2xl text-[15px] text-ink-500">
           Browse the canonical layer: merged hotel content, full source provenance, and honest match confidence — no

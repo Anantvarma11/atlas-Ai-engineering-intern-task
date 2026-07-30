@@ -33,14 +33,13 @@ class CanonicalRoom(BaseModel):
     view: str | None = Field(None, description="City / Pool / Garden / Sea / Mountain / Courtyard")
     is_smoking: bool | None = None
     amenities: list[str]
-    match_status: str = Field(..., description="matched | a_only | b_only")
+    match_status: str = Field(..., description="matched | singleton")
     match_confidence: float = Field(..., ge=0.0, le=1.0)
-    supplier_a_room: RawSupplierRoom | None = None
-    supplier_b_room: RawSupplierRoom | None = None
+    sources: dict[str, RawSupplierRoom] = Field(default_factory=dict)
 
 
 class NearMiss(BaseModel):
-    supplier: str = Field(..., description="Which supplier the candidate belongs to: 'a' or 'b'")
+    supplier: str = Field(..., description="Which supplier the candidate belongs to")
     supplier_id: str
     name: str
     address: str
@@ -62,12 +61,11 @@ class HotelSummary(BaseModel):
     stars: float | None
     amenities: list[str]
     image_urls: list[str]
-    match_status: str = Field(..., description="matched | a_only | b_only")
+    match_status: str = Field(..., description="matched | singleton")
     match_confidence: float = Field(..., ge=0.0, le=1.0)
     match_method: str = Field(..., description="geo_fuzzy | rescue | llm | singleton")
     match_note: str | None = Field(None, description="LLM adjudication rationale, when match_method='llm'")
-    supplier_a_id: str | None
-    supplier_b_id: str | None
+    source_ids: dict[str, str] = Field(default_factory=dict)
 
 
 class HotelListResponse(BaseModel):
@@ -82,11 +80,6 @@ class HotelListResponse(BaseModel):
 # Detail endpoint
 # ──────────────────────────────────────────────────────────────────────────────
 
-class HotelSources(BaseModel):
-    supplier_a: RawSupplierHotel | None = None
-    supplier_b: RawSupplierHotel | None = None
-
-
 class HotelDetail(BaseModel):
     id: str
     name: str
@@ -100,15 +93,17 @@ class HotelDetail(BaseModel):
     match_confidence: float
     match_method: str
     match_note: str | None = None
-    supplier_a_id: str | None
-    supplier_b_id: str | None
+    source_ids: dict[str, str] = Field(default_factory=dict)
 
-    sources: HotelSources = Field(..., description="Verbatim source records from each supplier")
+    sources: dict[str, RawSupplierHotel] = Field(
+        default_factory=dict,
+        description="Verbatim source records from each supplier"
+    )
     rooms: list[CanonicalRoom] = Field(
         default_factory=list,
         description="Canonical rooms with matched/unmatched status and structured attributes",
     )
     near_misses: list[NearMiss] = Field(
         default_factory=list,
-        description="Sub-threshold candidates from the other supplier that were considered but not matched",
+        description="Sub-threshold candidates that were considered but not matched",
     )

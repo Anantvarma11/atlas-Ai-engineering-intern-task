@@ -9,7 +9,9 @@ services:
       # to leave unset (defaults to empty, pipeline stays at $0). Populated
       # from a local .env via Compose's built-in variable substitution, or
       # from your shell — no error if neither is present.
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - CEREBRAS_API_KEY=${CEREBRAS_API_KEY:-}
+      # Optional — enables /admin/* and the admin panel; unset disables both.
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-300}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

@@ -6,8 +6,7 @@ export function pct(n: number): string {
 
 export const MATCH_STATUS_LABEL: Record<MatchStatus, string> = {
   matched: "Matched",
-  a_only: "Supplier A only",
-  b_only: "Supplier B only",
+  singleton: "Single source",
 };
 
 export const MATCH_METHOD_LABEL: Record<MatchMethod, string> = {

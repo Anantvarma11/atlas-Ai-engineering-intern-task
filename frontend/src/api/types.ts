@@ -1,4 +1,4 @@
-export type MatchStatus = "matched" | "a_only" | "b_only";
+export type MatchStatus = "matched" | "singleton";
 export type MatchMethod = "geo_fuzzy" | "rescue" | "llm" | "singleton";
 
 export interface RawSupplierHotel {
@@ -29,12 +29,11 @@ export interface CanonicalRoom {
   amenities: string[];
   match_status: MatchStatus;
   match_confidence: number;
-  supplier_a_room: RawSupplierRoom | null;
-  supplier_b_room: RawSupplierRoom | null;
+  sources: Record<string, RawSupplierRoom>;
 }
 
 export interface NearMiss {
-  supplier: "a" | "b";
+  supplier: string;
   supplier_id: string;
   name: string;
   address: string;
@@ -56,8 +55,7 @@ export interface HotelSummary {
   match_confidence: number;
   match_method: MatchMethod;
   match_note: string | null;
-  supplier_a_id: string | null;
-  supplier_b_id: string | null;
+  source_ids: Record<string, string>;
 }
 
 export interface HotelListResponse {
@@ -68,13 +66,8 @@ export interface HotelListResponse {
   hotels: HotelSummary[];
 }
 
-export interface HotelSources {
-  supplier_a: RawSupplierHotel | null;
-  supplier_b: RawSupplierHotel | null;
-}
-
 export interface HotelDetail extends Omit<HotelSummary, never> {
-  sources: HotelSources;
+  sources: Record<string, RawSupplierHotel>;
   rooms: CanonicalRoom[];
   near_misses: NearMiss[];
 }

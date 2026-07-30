@@ -1,0 +1,14 @@
+{
+  "lifetime_prompt_tokens": 11413,
+  "lifetime_completion_tokens": 17685,
+  "lifetime_pairs_adjudicated": 97,
+  "lifetime_cost_usd": 0.0,
+  "runs": [
+    {
+      "prompt_tokens": 11413,
+      "completion_tokens": 17685,
+      "pairs_called": 97,
+      "cost_usd": 0.0
+    }
+  ]
+}

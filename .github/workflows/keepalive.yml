@@ -1,0 +1,15 @@
+name: Keep Alive
+
+on:
+  schedule:
+    # Run every 5 minutes
+    - cron: "*/5 * * * *"
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend API
+        # The base URL (/) is tagged as the health endpoint in main.py
+        run: curl -sSf https://atlas-ai-engineering-intern-task-away.onrender.com/ || echo "Failed to reach API"

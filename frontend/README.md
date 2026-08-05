@@ -1,4 +1,4 @@
-# Away Hotels — Frontend
+# Atlas Hotels — Frontend
 
 A React + TypeScript + Tailwind UI for browsing the canonical hotel layer: search, per-hotel provenance (both supplier records side by side), matched rooms with normalized attributes, and near-miss candidates.
 

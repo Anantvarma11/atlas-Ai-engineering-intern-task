@@ -11,7 +11,7 @@ export function Header() {
             </svg>
           </span>
           <span className="flex flex-col leading-none">
-            <span className="font-display text-[17px] font-semibold text-ink-900">Away Hotels</span>
+            <span className="font-display text-[17px] font-semibold text-ink-900">Atlas Hotels</span>
             <span className="text-[11px] font-medium tracking-wide text-ink-400">Canonical Layer</span>
           </span>
         </Link>

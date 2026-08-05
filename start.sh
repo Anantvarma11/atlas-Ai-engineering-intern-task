@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the Away Hotels backend (FastAPI) and frontend (Vite) together for
+# Starts the Atlas Hotels backend (FastAPI) and frontend (Vite) together for
 # local development. Docker's own entrypoint is backend/start.sh — this one
 # is for running both without containers.
 set -e

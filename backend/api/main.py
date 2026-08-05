@@ -1,5 +1,5 @@
 """
-Away Hotels API — canonical hotel layer.
+Atlas Hotels API — canonical hotel layer.
 
 Endpoints
 ---------
@@ -38,7 +38,7 @@ logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
-logger = logging.getLogger("away.api")
+logger = logging.getLogger("atlas.api")
 
 from api.db import (
     DB_PATH,
@@ -63,7 +63,7 @@ from pipeline.llm_adjudicate import SPEND_LOG_PATH
 from api.routers import admin
 
 app = FastAPI(
-    title="Away Hotels API",
+    title="Atlas Hotels API",
     description=(
         "Canonical hotel layer built from two Bangalore supplier feeds. "
         "Each hotel appears once; matched rooms carry structured attributes "

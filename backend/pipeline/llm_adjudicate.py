@@ -10,7 +10,7 @@ evidence either way — a legal name vs a trade name, a rebrand, a supplier
 using an aggregator prefix inconsistently. These are exactly the cases where
 a bit of world knowledge (a human reviewer, or a cheap LLM call) beats more
 string-matching cleverness. This is the "targeted use on hard cases" the
-assignment explicitly calls out as good judgment — the opposite of pushing
+project requires as a demonstration of good judgment — the opposite of pushing
 all ~13M A×B pairs, or even the ~300k geo-blocked candidates, through a model.
 
 This module is entirely opt-in and fails soft:

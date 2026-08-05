@@ -1,4 +1,4 @@
-# Away Hotels API
+# Atlas Hotels API
 
 A canonical hotel layer built from any number of supplier feeds (two Bangalore
 feeds, "A" and "B", by default). Each physical hotel appears once, with merged
@@ -70,7 +70,7 @@ at `GET /stats`. See `WRITEUP.md` for the cost accounting.
 ### Optional: admin panel (add a supplier, re-run the pipeline from the UI)
 
 The `/admin/*` routes allow uploading a supplier CSV/XLSX, deleting a staged file,
-and triggering a pipeline re-run. They are enabled by default for this assignment.
+and triggering a pipeline re-run.
 
 ---
 

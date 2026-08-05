@@ -64,7 +64,7 @@ export function Landing() {
       <header className="border-b border-zinc-800">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-5">
           <span className="font-mono text-xs uppercase tracking-[0.2em] text-zinc-500">
-            Away · Engineering Case Study
+            Atlas · Hotel Matching Engine
           </span>
           <Link
             to="/app"
@@ -78,17 +78,17 @@ export function Landing() {
 
       <main className="mx-auto max-w-4xl px-6">
         <div className="py-16 sm:py-24">
-          <p className="font-mono text-sm text-cyan-500">Take-home submission by Anant Varma</p>
+          <p className="font-mono text-sm text-cyan-500">Built by Anant Varma</p>
           <h1 className="mt-4 max-w-2xl font-display text-4xl leading-tight text-zinc-50 sm:text-5xl">
             Two supplier feeds. One clean record per hotel.
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-zinc-400">
-            This page walks through what was asked, exactly how the pipeline cleans and
+            This page walks through exactly how the pipeline cleans and
             resolves the raw data, and how each layer of the system actually works —
             before you click through to the running product.
           </p>
           <div className="mt-6 flex flex-wrap gap-4">
-            <a href="https://github.com/Anantvarma11/atlas-Ai-engineering-intern-task" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-cyan-500 hover:text-cyan-400 transition">
+            <a href="https://github.com/Anantvarma11/atlas-hotel-matching" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-cyan-500 hover:text-cyan-400 transition">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.161 22 16.416 22 12c0-5.523-4.477-10-10-10z" />
               </svg>
@@ -114,9 +114,9 @@ export function Landing() {
           </div>
         </div>
 
-        <Section index="01" title="The brief">
+        <Section index="01" title="The Problem">
           <p>
-            Away sources hotel inventory from third-party suppliers. Two of them — call
+            Atlas sources hotel inventory from third-party suppliers. Two of them — call
             them <strong className="text-zinc-200">A</strong> and{" "}
             <strong className="text-zinc-200">B</strong> — independently list overlapping
             hotels in Bangalore. The same physical property shows up in both feeds, but
@@ -132,7 +132,7 @@ export function Landing() {
             real-world hotel," merge them into a single canonical record with confidence
             and provenance attached, and do the same one level down for rooms. That
             resolution-and-merge problem, at hotel level and then room level, is the
-            actual assignment. The API and the UI exist to expose that merged layer.
+            core technical challenge. The API and the UI exist to expose that merged layer.
           </p>
         </Section>
 
@@ -374,8 +374,7 @@ export function Landing() {
             near-miss candidates the matcher considered but rejected for that hotel.
           </p>
           <p>
-            An optional admin panel (left completely open without authentication for the purposes 
-            of this assignment review) lets you upload a new supplier's CSV or XLSX, see the currently 
+            An optional admin panel (left completely open without authentication for demonstration purposes) lets you upload a new supplier's CSV or XLSX, see the currently 
             staged data files, and trigger a full pipeline re-run, without touching a terminal.
           </p>
         </Section>

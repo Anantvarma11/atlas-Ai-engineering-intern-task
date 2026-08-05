@@ -2,6 +2,8 @@
 
 A canonical hotel layer built from any number of supplier feeds (two Bangalore feeds by default), plus a UI on top.
 
+**Live Demo:** [https://atlas-hotels.vercel.app/](https://atlas-hotels.vercel.app/)
+
 ```text
 backend/    FastAPI service + matching pipeline — see backend/README.md
 frontend/   React + TypeScript + Tailwind UI    — see frontend/README.md
